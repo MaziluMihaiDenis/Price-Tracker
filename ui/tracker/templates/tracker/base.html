@@ -1,0 +1,55 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>{% block title %}Price Tracker{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'vendor/bootstrap/bootstrap.min.css' %}">
+  <link rel="stylesheet" href="{% static 'tracker/css/app.css' %}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  <div class="app-frame">
+    <aside class="sidebar d-none d-lg-flex flex-column" aria-label="Main navigation">
+      <a class="brand-lockup" href="{% url 'dashboard' %}">
+        <span class="brand-mark" aria-hidden="true">P</span>
+        <span><strong>price<span class="brand-accent">track</span></strong><small>Keep an eye on what matters</small></span>
+      </a>
+      <div class="sidebar-label">Workspace</div>
+      <nav class="nav flex-column app-nav">
+        <a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}"><span class="nav-glyph">⌂</span> Overview</a>
+        <a class="nav-link {% if request.resolver_match.url_name in 'item-list item-detail item-create item-update' %}active{% endif %}" href="{% url 'item-list' %}"><span class="nav-glyph">▤</span> Tracked items</a>
+        <a class="nav-link {% if request.resolver_match.url_name in 'comparison-list comparison-create comparison-detail' %}active{% endif %}" href="{% url 'comparison-list' %}"><span class="nav-glyph">◫</span> Comparisons</a>
+      </nav>
+      <div class="sidebar-label sidebar-label-lower">Manage</div>
+      <nav class="nav flex-column app-nav">
+        <a class="nav-link {% if request.resolver_match.url_name == 'settings' %}active{% endif %}" href="{% url 'settings' %}"><span class="nav-glyph">⚙</span> Preferences</a>
+      </nav>
+      <div class="sidebar-spacer"></div>
+      <div class="sidebar-tip"><span class="tip-icon">✦</span><strong>Small changes add up.</strong><p>Track the things you care about, all in one place.</p></div>
+      <div class="sidebar-user"><span class="avatar">{{ request.user.username|first|upper }}</span><span class="user-name">{{ request.user.get_short_name|default:request.user.username }}<small>Household account</small></span><form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="icon-button" type="submit" aria-label="Sign out">↗</button></form></div>
+    </aside>
+
+    <div class="main-column">
+      <header class="topbar">
+        <button class="btn mobile-menu d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileNav" aria-controls="mobileNav" aria-label="Open navigation">☰</button>
+        <div class="topbar-context"><span class="eyebrow">YOUR HOUSEHOLD</span><span class="topbar-title">Price overview</span></div>
+        <div class="topbar-actions"><span class="today-label">{% now "D, j M" %}</span><a class="btn btn-primary btn-sm add-button" href="{% url 'item-create' %}"><span aria-hidden="true">＋</span> Add item</a></div>
+      </header>
+      <div class="offcanvas offcanvas-start mobile-offcanvas" tabindex="-1" id="mobileNav" aria-labelledby="mobileNavLabel">
+        <div class="offcanvas-header"><a class="brand-lockup" id="mobileNavLabel" href="{% url 'dashboard' %}"><span class="brand-mark">P</span><strong>price<span class="brand-accent">track</span></strong></a><button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button></div>
+        <div class="offcanvas-body"><nav class="nav flex-column app-nav"><a class="nav-link" href="{% url 'dashboard' %}">⌂ &nbsp; Overview</a><a class="nav-link" href="{% url 'item-list' %}">▤ &nbsp; Tracked items</a><a class="nav-link" href="{% url 'comparison-list' %}">◫ &nbsp; Comparisons</a><a class="nav-link" href="{% url 'settings' %}">⚙ &nbsp; Preferences</a></nav><form method="post" action="{% url 'logout' %}" class="mt-4">{% csrf_token %}<button class="btn btn-outline-secondary w-100" type="submit">Sign out</button></form></div>
+      </div>
+      <main class="page-content">
+        {% if messages %}<div class="messages" aria-live="polite">{% for message in messages %}<div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="status">{{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Dismiss"></button></div>{% endfor %}</div>{% endif %}
+        {% block content %}{% endblock %}
+      </main>
+      <footer class="page-footer"><span>Made for mindful spending.</span><span>Price Tracker <span class="footer-dot">·</span> Private by design</span></footer>
+    </div>
+  </div>
+  <script src="{% static 'vendor/bootstrap/bootstrap.bundle.min.js' %}"></script>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>
