@@ -1,0 +1,12 @@
+# Python virtual environments and caches
+.venv/
+__pycache__/
+*.py[cod]
+db.sqlite3
+staticfiles/
+.env
+.git/
+.claude/
+
+# Scraping spike: saved page copies may contain sellers' personal data
+spikes/scraping/pages/
