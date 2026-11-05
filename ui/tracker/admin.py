@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from tracker.models import Category, CheckAttempt, ComparisonGroup, ExchangeRate, Item, PricePoint, Profile
+from tracker.models import Category, CheckAttempt, CheckRun, ComparisonGroup, ExchangeRate, Item, PricePoint, Profile
 
 
 @admin.register(Category)
@@ -25,4 +25,9 @@ class ItemAdmin(admin.ModelAdmin):
 admin.site.register(Profile)
 admin.site.register(ExchangeRate)
 admin.site.register(CheckAttempt)
+
+
+@admin.register(CheckRun)
+class CheckRunAdmin(admin.ModelAdmin):
+    list_display = ("started_at", "finished_at", "checked", "ok", "attention", "removed", "skipped")
 admin.site.register(ComparisonGroup)

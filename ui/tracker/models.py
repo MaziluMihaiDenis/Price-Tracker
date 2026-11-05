@@ -128,6 +128,24 @@ class ExchangeRate(models.Model):
         return f"{self.currency} rate for {self.date}"
 
 
+class CheckRun(models.Model):
+    """One run of the daily `check_prices` command, covering every household item."""
+
+    started_at = models.DateTimeField(default=timezone.now)
+    finished_at = models.DateTimeField(null=True, blank=True)  # empty while running, or if interrupted
+    checked = models.PositiveIntegerField(default=0)
+    ok = models.PositiveIntegerField(default=0)
+    attention = models.PositiveIntegerField(default=0)
+    removed = models.PositiveIntegerField(default=0)
+    skipped = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["-started_at"]
+
+    def __str__(self):
+        return f"Daily check on {timezone.localtime(self.started_at):%Y-%m-%d %H:%M}"
+
+
 class CheckAttempt(models.Model):
     class Outcome(models.TextChoices):
         OK = "ok", "Successful"
@@ -136,6 +154,8 @@ class CheckAttempt(models.Model):
         ERROR = "error", "Error"
 
     item = models.ForeignKey(Item, on_delete=models.CASCADE, related_name="check_attempts")
+    # Empty for a manual "Check now"; set when the attempt was part of a daily run.
+    run = models.ForeignKey(CheckRun, on_delete=models.SET_NULL, null=True, blank=True, related_name="attempts")
     attempted_at = models.DateTimeField(default=timezone.now)
     outcome = models.CharField(max_length=12, choices=Outcome.choices)
     message = models.CharField(max_length=240, blank=True)

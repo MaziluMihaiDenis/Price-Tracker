@@ -7,8 +7,8 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from tracker import checks
-from tracker.models import Category, CheckAttempt, Item, PricePoint
+from tracker import checks, daily
+from tracker.models import Category, CheckAttempt, CheckRun, Item, PricePoint
 from tracker.tests.helpers import FakeInternet, fixture
 
 EMAG_URL = "https://www.emag.ro/gel/pd/TEST/"
@@ -179,3 +179,37 @@ class AccessTests(ViewTestCase):
         self.assertEqual(self.client.get(reverse("item-detail", args=[foreign.pk])).status_code, 404)
         self.assertEqual(self.client.get(reverse("item-update", args=[foreign.pk])).status_code, 404)
         self.assertNotContains(self.client.get(reverse("item-list")), "Bogdan")
+
+
+class DailyCheckSummaryTests(ViewTestCase):
+    def dashboard_text(self):
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_no_run_yet(self):
+        """Acceptance criterion 6."""
+        self.assertIn("No daily check has run yet.", self.dashboard_text())
+
+    def test_counts_only_my_items(self):
+        """Acceptance criterion 5."""
+        mine = self.automatic_item(name="My gel")
+        PricePoint.objects.create(item=mine, amount=Decimal("89.49"), currency="RON",
+                                  recorded_at=timezone.now() - timedelta(days=2))
+        self.automatic_item(name="My studio", url=STORIA_URL)
+        theirs = self.automatic_item(owner=self.other, name="Their gel", url=EMAG_URL.replace("TEST", "OTHER"))
+        self.internet.pages[theirs.url] = (403, "<html>Access Denied</html>")
+        daily.run_daily_checks(sleep=lambda seconds: None)
+
+        text = self.dashboard_text()
+        self.assertIn("Last daily check:", text)
+        # Both of mine are OK and both got a new price point; the other user's blocked item isn't counted.
+        self.assertIn("2 OK · 2 new prices · 0 need attention", text)
+        self.client.force_login(self.other)
+        self.assertIn("0 OK · 0 new prices · 1 needs attention", self.dashboard_text())
+
+    def test_run_in_progress(self):
+        CheckRun.objects.create(started_at=timezone.now() - timedelta(minutes=2))
+        self.assertIn("still running", self.dashboard_text())
+
+    def test_interrupted_run(self):
+        CheckRun.objects.create(started_at=timezone.now() - timedelta(hours=3))
+        self.assertIn("did not finish", self.dashboard_text())

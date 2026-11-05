@@ -12,7 +12,8 @@ from tracker.adapters import adapter_for
 from tracker.adapters.base import PageResult
 from tracker.checks import can_be_checked, check_item, read_page, seconds_until_next_check, start_tracking
 from tracker.forms import AutomaticItemForm, ComparisonGroupForm, ItemForm, LinkForm, PricePointForm, ProfileForm
-from tracker.models import Category, CheckAttempt, ComparisonGroup, Item, PricePoint
+from tracker.daily import running_check
+from tracker.models import Category, CheckAttempt, CheckRun, ComparisonGroup, Item, PricePoint
 
 # The price read during "Add by link" is kept in the session between preview and save,
 # so the saved price is the one the app read, not one sent back by the browser.
@@ -29,6 +30,27 @@ def _items_for(user):
     )
 
 
+def _daily_check_summary(user):
+    """The latest daily check, counted for this user's items only (never other people's)."""
+    run = CheckRun.objects.first()
+    if run is None:
+        return None
+    attempts = run.attempts.filter(item__owner=user)
+    Outcome = CheckAttempt.Outcome
+    end = run.finished_at or timezone.now()
+    return {
+        "run": run,
+        "running": run.finished_at is None and running_check() == run,
+        "ok": attempts.filter(outcome=Outcome.OK).count(),
+        "attention": attempts.filter(outcome__in=[Outcome.BLOCKED, Outcome.ERROR]).count(),
+        "removed": attempts.filter(outcome=Outcome.REMOVED).count(),
+        "new_prices": PricePoint.objects.filter(
+            item__owner=user, source=PricePoint.Source.AUTOMATIC,
+            recorded_at__gte=run.started_at, recorded_at__lte=end,
+        ).count(),
+    }
+
+
 @login_required
 def dashboard(request):
     items = _items_for(request.user)
@@ -43,6 +65,7 @@ def dashboard(request):
         "recent_items": recent_items,
         "recent_prices": recent_prices,
         "groups": ComparisonGroup.objects.filter(owner=request.user).prefetch_related("items")[:3],
+        "daily_check": _daily_check_summary(request.user),
     }
     return render(request, "tracker/dashboard.html", context)
 

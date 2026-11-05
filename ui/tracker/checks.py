@@ -158,10 +158,10 @@ def _needs_new_point(latest, page, now):
     return timezone.localdate(latest.recorded_at) != timezone.localdate(now)
 
 
-def _record(item, outcome, message, now):
+def _record(item, outcome, message, now, run=None):
     item.last_checked = now
     item.save(update_fields=["status", "last_error", "last_checked", "updated_at"])
-    CheckAttempt.objects.create(item=item, attempted_at=now, outcome=outcome, message=message[:240])
+    CheckAttempt.objects.create(item=item, run=run, attempted_at=now, outcome=outcome, message=message[:240])
 
 
 @transaction.atomic
@@ -178,8 +178,11 @@ def start_tracking(item, page, now=None):
     return point
 
 
-def check_item(item, now=None):
-    """Check one automatic item: read today's price and update its status and history."""
+def check_item(item, now=None, run=None):
+    """Check one automatic item: read today's price and update its status and history.
+
+    `run` is the daily CheckRun this check belongs to, or None for a manual "Check now".
+    """
     Outcome = CheckAttempt.Outcome
     if not can_be_checked(item):
         return CheckResult("skipped", "This item isn't checked automatically.")
@@ -190,7 +193,7 @@ def check_item(item, now=None):
         if result.outcome != Outcome.OK:
             item.status = Item.Status.REMOVED if result.outcome == Outcome.REMOVED else Item.Status.ERROR
             item.last_error = result.message[:240]
-            _record(item, result.outcome, result.message, now)
+            _record(item, result.outcome, result.message, now, run)
             return CheckResult(result.outcome, result.message)
 
         page = result.page
@@ -207,5 +210,5 @@ def check_item(item, now=None):
             message = f"{message} {result.message}"
         item.status = Item.Status.ACTIVE
         item.last_error = ""
-        _record(item, Outcome.OK, message, now)
+        _record(item, Outcome.OK, message, now, run)
     return CheckResult(Outcome.OK, message, point)
