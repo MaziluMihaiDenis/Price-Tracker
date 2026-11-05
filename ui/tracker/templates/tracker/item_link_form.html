@@ -2,6 +2,7 @@
 {% block title %}Add by link · Price Tracker{% endblock %}
 {% block content %}
 <section class="page-heading"><div><div class="eyebrow"><a href="{% url 'item-list' %}">TRACKED ITEMS</a> / ADD BY LINK</div><h1>Track a price from a link</h1><p>{% if preview %}Check what we found, then choose how to file it.{% else %}Paste a product or listing link and we’ll read its current price.{% endif %}</p></div><a class="text-link" href="{% url 'item-list' %}">← Back to items</a></section>
+{% include 'tracker/_add_method_switch.html' with mode='link' %}
 <div class="form-layout">
 {% if preview %}
   <form method="post" class="panel-card form-panel">{% csrf_token %}<input type="hidden" name="step" value="save">

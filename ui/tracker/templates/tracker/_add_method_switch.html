@@ -1,0 +1,9 @@
+<nav class="add-method-switch" aria-label="Choose how to add an item">
+  <span class="add-method-label">Add by</span>
+  <div class="add-method-pills" role="group" aria-label="Add method">
+    <a class="add-method-option{% if mode == 'manual' %} is-active{% endif %}"
+       href="{% url 'item-create' %}"{% if mode == 'manual' %} aria-current="page"{% endif %}>Manual</a>
+    <a class="add-method-option{% if mode == 'link' %} is-active{% endif %}"
+       href="{% url 'item-add-link' %}"{% if mode == 'link' %} aria-current="page"{% endif %}>Link</a>
+  </div>
+</nav>
