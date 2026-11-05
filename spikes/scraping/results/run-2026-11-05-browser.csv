@@ -1,0 +1,6 @@
+run_date,method,site,url,final_url,http_status,outcome,title,price,currency,extracted_by,availability,browser_price,auto_match,checked_by_you,notes
+2026-11-05,browser,altex,https://altex.ro/consola-playstation-5-slim-ps5-1tb-e-chassis-white/cpd/1000049742/,,,robots-unreachable,,,,,,3699.90 lei,,,robots.txt could not be fetched
+2026-11-05,browser,altex,https://altex.ro/tastatura-gaming-mecanica-logitech-g413-se-tkl-usb-layout-us-int-negru/cpd/TAS920010446/,,,robots-unreachable,,,,,,279.00 lei,,,robots.txt could not be fetched
+2026-11-05,browser,olx,https://www.olx.ro/d/oferta/garsoniera-drumul-taberei-IDl3TPc.html,https://www.olx.ro/d/oferta/garsoniera-drumul-taberei-IDl3TPc.html,200,ok,Garsoniera drumul taberei,2134,RON,structured,InStock,400 eur,no,,
+2026-11-05,browser,imobiliare,https://www.imobiliare.ro/oferta/garsoniera-de-inchiriat-sector-6-grozavesti-36-mp-1-46627527,https://www.imobiliare.ro/oferta/garsoniera-de-inchiriat-sector-6-grozavesti-36-mp-1-46627527,403,blocked,,,,,,400 eur/luna,,,
+2026-11-05,browser,imobiliare,https://www.imobiliare.ro/oferta/garsoniera-de-inchiriat-sector-6-politehnica-38mp-276139426,https://www.imobiliare.ro/oferta/garsoniera-de-inchiriat-sector-6-politehnica-38mp-276139426,403,blocked,,,,,,450 eur/luna,,,

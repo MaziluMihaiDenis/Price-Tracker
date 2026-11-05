@@ -1,6 +1,14 @@
-from django import forms
+import re
 
+from django import forms
+from django.core.validators import URLValidator
+
+from tracker.adapters import adapter_for, clean_url, supported_site_names
 from tracker.models import ComparisonGroup, Item, PricePoint, Profile
+
+# The first link in pasted text, e.g. from a phone app's Share button ("Title https://...").
+LINK_IN_TEXT = re.compile(r"(?:https?://|www\.)[^\s<>\"']+", re.IGNORECASE)
+TRAILING_PUNCTUATION = ".,;:!?)]}"
 
 
 class BootstrapFormMixin:
@@ -32,6 +40,80 @@ class ItemForm(BootstrapFormMixin, forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["category"].empty_label = "Choose a category"
         self.fields["url"].required = False
+        self.apply_bootstrap_classes()
+
+    def clean_url(self):
+        url = self.cleaned_data["url"]
+        # Automatic items are re-checked from their link, so it must stay on a supported site.
+        if self.instance.pk and self.instance.source == Item.Source.AUTOMATIC:
+            if not url or adapter_for(url) is None:
+                raise forms.ValidationError(
+                    f"Automatically tracked items need a link from a supported site ({supported_site_names()})."
+                )
+            url = clean_url(url)
+        return url
+
+
+class LinkForm(BootstrapFormMixin, forms.Form):
+    # A plain text field rather than a URL field: the browser's own URL check rejects links
+    # without "https://" and shared "title + link" text, and its length limit silently cuts
+    # long links. The server finds and checks the link instead (see clean_url).
+    url = forms.CharField(
+        label="Product or listing link",
+        max_length=2000,
+        widget=forms.TextInput(attrs={
+            "placeholder": "Paste a link, e.g. https://www.emag.ro/...",
+            "inputmode": "url",
+            "autocomplete": "off",
+            "spellcheck": "false",
+        }),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.apply_bootstrap_classes()
+
+    def clean_url(self):
+        text = self.cleaned_data["url"]
+        match = LINK_IN_TEXT.search(text)
+        if match:
+            url = match.group().rstrip(TRAILING_PUNCTUATION)
+        elif len(text.split()) == 1 and "." in text:
+            url = text  # a bare address such as "storia.ro/ro/oferta/..."
+        else:
+            raise forms.ValidationError("Paste a link that starts with https:// or www.")
+        if not url.lower().startswith(("http://", "https://")):
+            url = "https://" + url
+
+        url = clean_url(url)  # tracking parts removed before the length check below
+        try:
+            URLValidator(schemes=["http", "https"])(url)
+        except forms.ValidationError:
+            raise forms.ValidationError("That doesn't look like a valid link.")
+        if adapter_for(url) is None:
+            raise forms.ValidationError(
+                f"This site isn't supported yet — add it manually instead. "
+                f"Supported sites: {supported_site_names()}."
+            )
+        if len(url) > Item._meta.get_field("url").max_length:
+            raise forms.ValidationError(
+                "This link is too long to store, even without its tracking parts. "
+                "Add the item manually instead."
+            )
+        return url
+
+
+class AutomaticItemForm(BootstrapFormMixin, forms.ModelForm):
+    """Details the user confirms after previewing a link (the URL itself comes from the preview)."""
+
+    class Meta:
+        model = Item
+        fields = ("name", "category", "description", "period")
+        widgets = {"description": forms.Textarea(attrs={"rows": 2})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["category"].empty_label = "Choose a category"
         self.apply_bootstrap_classes()
 
 

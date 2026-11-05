@@ -358,7 +358,7 @@ The order is "riskiest first, then foundations": a spike first, so we find out e
 
 ### Open questions
 
-1. Which 2 sites go into the MVP? This is decided by the spike. The current guess is eMAG plus one of Storia or imobiliare.ro.
+1. ~~Which 2 sites go into the MVP?~~ **Decided 2026-11-05: eMAG + Storia**, both read via structured data (see [docs/spikes/scraping-results.md](spikes/scraping-results.md)). Altex and imobiliare.ro block automated access; OLX's structured data converts prices to RON. eMAG's terms forbid automated extraction: accepted for personal use, to be re-evaluated before going public.
 2. Should the code be backed up on GitHub, in a private repository?
 3. Is the initial category list right?
 
