@@ -12,7 +12,9 @@ from django.views.decorators.http import require_POST
 from tracker.adapters import adapter_for
 from tracker.adapters.base import PageResult
 from tracker.checks import can_be_checked, check_item, read_page, seconds_until_next_check, start_tracking
-from tracker.forms import AutomaticItemForm, ComparisonGroupForm, ItemForm, LinkForm, PricePointForm, ProfileForm
+from tracker import comparisons
+from tracker.forms import (AddToComparisonForm, AutomaticItemForm, ComparisonGroupForm, ItemForm, LinkForm,
+                           PricePointForm, ProfileForm)
 from tracker.money import RateBook, display_currency_for, display_price
 from tracker.daily import running_check
 from tracker.indicators import attach_summaries, summarize
@@ -266,6 +268,9 @@ def item_detail(request, pk):
         "summary": summarize(points, book),  # the full history is already loaded: no extra query
         "rate_book": book,
         "can_check": can_be_checked(item),
+        "item_groups": item.comparison_groups.filter(owner=request.user),
+        "has_groups": ComparisonGroup.objects.filter(owner=request.user).exists(),
+        "add_to_comparison_form": AddToComparisonForm(item=item),
     })
 
 
@@ -289,23 +294,55 @@ def comparison_create(request):
 
 
 @login_required
+def comparison_update(request, pk):
+    group = get_object_or_404(ComparisonGroup, pk=pk, owner=request.user)
+    form = ComparisonGroupForm(request.POST or None, instance=group, owner=request.user)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Comparison updated.")
+        return redirect("comparison-detail", pk=group.pk)
+    return render(request, "tracker/comparison_form.html", {"form": form, "group": group})
+
+
+@login_required
+def comparison_delete(request, pk):
+    """GET shows "Are you sure?"; only the POST button deletes. Items and prices are kept."""
+    group = get_object_or_404(ComparisonGroup, pk=pk, owner=request.user)
+    if request.method == "POST":
+        name = group.name
+        group.delete()  # removes the group and its links to items, never the items
+        messages.success(request, f"Comparison “{name}” deleted. Its items are still tracked.")
+        return redirect("comparison-list")
+    return render(request, "tracker/comparison_confirm_delete.html", {"group": group})
+
+
+@login_required
 def comparison_detail(request, pk):
-    group = get_object_or_404(
-        ComparisonGroup.objects.filter(owner=request.user).prefetch_related(
-            Prefetch(
-                "items",
-                queryset=Item.objects.select_related("category").prefetch_related(
-                    Prefetch(
-                        "price_points",
-                        queryset=PricePoint.objects.order_by("-recorded_at", "-id")[:2],
-                        to_attr="_latest_prices",
-                    )
-                ),
-            )
-        ),
-        pk=pk,
-    )
-    return render(request, "tracker/comparison_detail.html", {"group": group})
+    group = get_object_or_404(ComparisonGroup, pk=pk, owner=request.user)
+    currency, book = display_currency_for(request.user), RateBook.load()
+    # One query loads every item's full history (for the chart, arrows and "Cheapest").
+    items = attach_summaries(_items_for(request.user).filter(comparison_groups=group).order_by("name"), book)
+    return render(request, "tracker/comparison_detail.html", {
+        "group": group,
+        "rows": comparisons.table_rows(items, currency, book),
+        "mixed_periods": comparisons.mixed_periods(items),
+        "chart_data": comparisons.chart_data(items, currency, book),
+        "rate_book": book,
+    })
+
+
+@login_required
+@require_POST
+def item_add_to_comparison(request, pk):
+    item = get_object_or_404(Item, pk=pk, owner=request.user)
+    form = AddToComparisonForm(request.POST, item=item)  # only your groups can be chosen
+    if form.is_valid():
+        group = form.cleaned_data["group"]
+        group.items.add(item)
+        messages.success(request, f"Added to {group.name}.")
+    else:
+        messages.error(request, "Choose one of your comparisons that doesn't include this item yet.")
+    return redirect("item-detail", pk=item.pk)
 
 
 @login_required

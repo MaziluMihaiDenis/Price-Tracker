@@ -315,15 +315,15 @@ The order is "riskiest first, then foundations": a spike first, so we find out e
 |---|---|---|---|
 | 1 | Scraping spike | ✅ Done | eMAG + Storia chosen. [Report](spikes/scraping-results.md), [plan](features/milestone-1-scraping-spike.md) |
 | 2 | Project setup | ✅ Done | Django app in `ui/`, logins, favourite-currency setting (commit `e2097aa`) |
-| 3 | Core data and manual entry | 🟡 Mostly done | Missing: category custom fields (`field_definitions` / `custom_values` aren't used by any form yet), deleting items |
+| 3 | Core data and manual entry | ⏭️ **Next** (🟡 mostly done) | Missing: category custom fields (`field_definitions` / `custom_values` aren't used by any form yet), deleting items |
 | 4 | Currencies | ✅ Done | BNR rates imported and updated daily; every price, chart and message shown in each person's currency (commit `7301ce8`). [Plan](features/milestone-4-currencies.md) |
-| 5 | History and indicators | ✅ Built, not committed yet | One-currency chart, "↓ 7.7%" arrows, "Lowest ever" badge, lowest/highest on the item page, dashboard "Price changes" panel. [Plan](features/milestone-5-indicators.md) |
+| 5 | History and indicators | ✅ Done | One-currency chart, "↓ 7.7%" arrows, "Lowest ever" badge, lowest/highest on the item page, dashboard "Price changes" panel. (commit `44f3d06`). [Plan](features/milestone-5-indicators.md) |
 | 6 | Automatic tracking | ✅ Done | eMAG + Storia adapters, "Add by link" with preview, "Check now", statuses (commit `a6d08e2`) |
 | 7 | Scheduling | ✅ Built, ⏳ task not registered yet | `check_prices`, `CheckRun`, dashboard line (commit `c408d8e`). Run `scripts\register_daily_check.ps1` once to start the 17:00 daily task. [Plan](features/milestone-7-daily-checks.md) |
-| 8 | Comparison groups | ⏭️ **Next** (🟡 partly done) | Create and view as a table, prices in your currency. Missing: one chart for the group, editing a group, mixed-period warning, change arrows on comparison pages |
+| 8 | Comparison groups | ✅ Built, not committed yet | One chart per group in your currency, mixed-period warning with a "Per month" column, "Cheapest" / "+X% vs cheapest", arrows, edit and delete, "Add to comparison" on the item page. [Plan](features/milestone-8-comparisons.md) |
 | 9 | Household rollout | ⬜ Not started | Waitress, backup script, instructions for family members |
 
-**Order from here:** M8 (comparison chart and editing) → M3 gaps → M9. M4 and M5 are done: RON and EUR prices are shown in one currency, with change indicators.
+**Order from here:** M3 gaps (deleting items, category custom fields) → M9. M4, M5 and M8 are done: prices in one currency, change indicators, and full comparison groups.
 
 | # | Milestone | Depends on | Main tasks | Acceptance criteria (how we know it's done) |
 |---|---|---|---|---|
@@ -383,7 +383,7 @@ The order is "riskiest first, then foundations": a spike first, so we find out e
 *Updated 2026-11-06.*
 
 1. Register the daily task once: `powershell -ExecutionPolicy Bypass -File scripts\register_daily_check.ps1`.
-2. Plan and build **milestone 8 (comparison groups)** with `/plan-feature`, then `/implement-feature`.
+2. Plan and build the **milestone 3 gaps** (deleting items, category custom fields) with `/plan-feature`, then `/implement-feature`.
 3. Answer open questions 2 and 3 above.
 4. Then follow the order in "Roadmap status" (section 9).
 

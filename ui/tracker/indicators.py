@@ -97,7 +97,7 @@ def summarize(points, book):
 
 
 def attach_summaries(items, book):
-    """Set `item.price_summary` on each item, loading all their prices in one query."""
+    """Set `item.price_summary` and `item.price_history` (oldest first) on each item, in one query."""
     items = list(items)
     by_item = defaultdict(list)
     if items:
@@ -105,5 +105,6 @@ def attach_summaries(items, book):
         for point in prices:
             by_item[point.item_id].append(point)
     for item in items:
-        item.price_summary = summarize(by_item[item.pk], book)
+        item.price_history = by_item[item.pk]
+        item.price_summary = summarize(item.price_history, book)
     return items

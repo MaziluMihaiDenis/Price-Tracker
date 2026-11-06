@@ -430,3 +430,200 @@ class IndicatorDisplayTests(ViewTestCase):
         response = self.client.get(reverse("item-list"))
         self.assertContains(response, "149.99 <small>RON</small>")
         self.assertNotContains(response, "150.00 <small>RON</small>")
+
+
+class ComparisonTests(ViewTestCase):
+    """Milestone 8: the group chart, Per month, Cheapest, editing, deleting and "Add to comparison"."""
+
+    def setUp(self):
+        super().setUp()
+        self.when = timezone.make_aware(datetime(2026, 11, 5, 12))
+        ExchangeRate.objects.create(date=self.when.date(), currency="EUR", ron_per_unit=Decimal("5.3398"))
+
+    def priced_item(self, name, *prices, owner=None, period=Item.Period.MONTHLY):
+        item = Item.objects.create(owner=owner or self.user, category=self.rent, name=name, period=period)
+        for days, (amount, currency) in enumerate(prices):
+            PricePoint.objects.create(item=item, amount=Decimal(amount), currency=currency,
+                                      recorded_at=self.when - timedelta(days=len(prices) - 1 - days))
+        return item
+
+    def group(self, *items, name="Studios", owner=None):
+        group = ComparisonGroup.objects.create(owner=owner or self.user, name=name)
+        group.items.set(items)
+        return group
+
+    def detail(self, group):
+        return self.client.get(reverse("comparison-detail", args=[group.pk]))
+
+    def test_chart_has_one_line_per_item_in_the_viewers_currency(self):
+        """Acceptance criterion 1."""
+        group = self.group(self.priced_item("TV RON", ("2500", "RON"), period=Item.Period.ONE_TIME),
+                           self.priced_item("TV EUR", ("470", "EUR"), period=Item.Period.ONE_TIME))
+        response = self.detail(group)
+        chart = response.context["chart_data"]
+        self.assertEqual(chart["currency"], "RON")
+        self.assertEqual({series["name"]: series["points"][0]["y"] for series in chart["series"]},
+                         {"TV RON": "2500.00", "TV EUR": "2509.71"})
+        self.assertContains(response, 'id="comparisonChart"')
+        self.assertContains(response, "comparison-chart.js")
+
+    def test_mixed_periods_show_the_warning_and_per_month(self):
+        """Acceptance criterion 3."""
+        group = self.group(self.priced_item("Gym", ("1200", "RON"), period=Item.Period.YEARLY),
+                           self.priced_item("Rent", ("2500", "RON")))
+        response = self.detail(group)
+        self.assertContains(response, "this group mixes Monthly and Yearly prices")
+        self.assertContains(response, "<th>Per month</th>")
+        self.assertContains(response, "100.00 <small>RON</small>")
+
+    def test_monthly_only_group_has_no_warning_or_per_month(self):
+        """Acceptance criterion 3 (the negative case)."""
+        response = self.detail(self.group(self.priced_item("A", ("2500", "RON")), self.priced_item("B", ("2800", "RON"))))
+        self.assertNotContains(response, "Different periods")
+        self.assertNotContains(response, "Per month")
+
+    def test_cheapest_and_percent_above_it(self):
+        """Acceptance criterion 4."""
+        response = self.detail(self.group(self.priced_item("Flat A", ("2500", "RON")),
+                                          self.priced_item("Flat B", ("2800", "RON"))))
+        self.assertContains(response, '<span class="cheapest-badge">Cheapest</span>', count=1)
+        self.assertContains(response, '<span class="vs-cheapest">+12% vs cheapest</span>', count=1)
+
+    def test_one_time_and_monthly_are_not_compared(self):
+        """Acceptance criterion 5."""
+        response = self.detail(self.group(self.priced_item("TV", ("3000", "RON"), period=Item.Period.ONE_TIME),
+                                          self.priced_item("Rent", ("2500", "RON"))))
+        self.assertNotContains(response, "cheapest-badge")
+        self.assertNotContains(response, "vs cheapest")
+
+    def test_table_shows_change_arrows(self):
+        """Acceptance criterion 6."""
+        response = self.detail(self.group(self.priced_item("Flat", ("2600", "RON"), ("2500", "RON"))))
+        self.assertContains(response, '<span class="visually-hidden">down</span> 3.8%')
+        self.assertContains(response, '<span class="lowest-badge">Lowest ever</span>')
+
+    def test_rename_and_change_items(self):
+        """Acceptance criterion 7."""
+        first, second = self.priced_item("A", ("1", "RON")), self.priced_item("B", ("2", "RON"))
+        group = self.group(first)
+        response = self.client.post(reverse("comparison-update", args=[group.pk]),
+                                    {"name": "Flats", "items": [second.pk]})
+        self.assertRedirects(response, reverse("comparison-detail", args=[group.pk]))
+        group.refresh_from_db()
+        self.assertEqual((group.name, list(group.items.all())), ("Flats", [second]))
+
+    def test_duplicate_name_shows_a_friendly_error(self):
+        """Acceptance criterion 7: a form error, not a crash."""
+        self.group(name="Studios")
+        response = self.client.post(reverse("comparison-create"), {"name": "studios"})
+        self.assertContains(response, "You already have a comparison with this name.")
+        other = self.group(name="Flats")
+        response = self.client.post(reverse("comparison-update", args=[other.pk]), {"name": "Studios"})
+        self.assertContains(response, "You already have a comparison with this name.")
+        self.assertEqual(ComparisonGroup.objects.filter(owner=self.user).count(), 2)
+
+    def test_renaming_to_its_own_name_is_fine(self):
+        group = self.group(name="Studios")
+        response = self.client.post(reverse("comparison-update", args=[group.pk]), {"name": "Studios"})
+        self.assertRedirects(response, reverse("comparison-detail", args=[group.pk]))
+
+    def test_another_user_may_use_the_same_name(self):
+        self.group(name="Studios", owner=self.other)
+        response = self.client.post(reverse("comparison-create"), {"name": "Studios"})
+        self.assertEqual(response.status_code, 302)
+
+    def test_delete_needs_confirmation_and_keeps_items(self):
+        """Acceptance criterion 8."""
+        item = self.priced_item("Flat", ("2500", "RON"))
+        group = self.group(item)
+        response = self.client.get(reverse("comparison-delete", args=[group.pk]))
+        self.assertContains(response, "Your items and their prices are kept.")
+        self.assertTrue(ComparisonGroup.objects.filter(pk=group.pk).exists())  # GET deletes nothing
+        response = self.client.post(reverse("comparison-delete", args=[group.pk]))
+        self.assertRedirects(response, reverse("comparison-list"))
+        self.assertFalse(ComparisonGroup.objects.filter(pk=group.pk).exists())
+        self.assertTrue(Item.objects.filter(pk=item.pk).exists())
+        self.assertEqual(item.price_points.count(), 1)
+
+    def test_add_to_comparison_from_the_item_page(self):
+        """Acceptance criterion 9."""
+        item = self.priced_item("Flat", ("2500", "RON"))
+        group = self.group(name="Studios")
+        page = self.client.get(reverse("item-detail", args=[item.pk]))
+        self.assertContains(page, "Not in any comparison yet.")
+        self.assertContains(page, reverse("item-add-to-comparison", args=[item.pk]))
+        response = self.client.post(reverse("item-add-to-comparison", args=[item.pk]), {"group": group.pk})
+        self.assertRedirects(response, reverse("item-detail", args=[item.pk]), fetch_redirect_response=False)
+        self.assertIn(item, group.items.all())
+        page = self.client.get(reverse("item-detail", args=[item.pk]))
+        self.assertContains(page, "Added to Studios.")
+        self.assertContains(page, reverse("comparison-detail", args=[group.pk]))
+        self.assertNotContains(page, reverse("item-add-to-comparison", args=[item.pk]))  # no group left to add to
+
+    def test_item_page_without_groups_offers_to_create_one(self):
+        """Acceptance criterion 9."""
+        item = self.priced_item("Flat", ("2500", "RON"))
+        page = self.client.get(reverse("item-detail", args=[item.pk]))
+        self.assertContains(page, "Create a comparison")
+        self.assertNotContains(page, reverse("item-add-to-comparison", args=[item.pk]))
+
+    def test_add_to_comparison_only_accepts_post(self):
+        item = self.priced_item("Flat", ("2500", "RON"))
+        self.assertEqual(self.client.get(reverse("item-add-to-comparison", args=[item.pk])).status_code, 405)
+
+    def test_other_users_cannot_touch_your_groups(self):
+        """Acceptance criterion 10."""
+        group = self.group(self.priced_item("Flat", ("2500", "RON")))
+        self.client.force_login(self.other)
+        for name in ("comparison-detail", "comparison-update", "comparison-delete"):
+            self.assertEqual(self.client.get(reverse(name, args=[group.pk])).status_code, 404)
+        self.assertEqual(self.client.post(reverse("comparison-delete", args=[group.pk])).status_code, 404)
+        response = self.client.post(reverse("comparison-update", args=[group.pk]), {"name": "Mine"})
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(ComparisonGroup.objects.filter(pk=group.pk, name="Studios").exists())
+
+    def test_items_cannot_cross_between_users(self):
+        """Acceptance criterion 10."""
+        mine = self.priced_item("Mine", ("1", "RON"))
+        my_group = self.group(name="Mine")
+        theirs = self.priced_item("Theirs", ("2", "RON"), owner=self.other)
+        their_group = self.group(name="Theirs", owner=self.other)
+        # Your item into their group: refused.
+        self.client.post(reverse("item-add-to-comparison", args=[mine.pk]), {"group": their_group.pk})
+        self.assertFalse(their_group.items.exists())
+        # Their item into your group: that item page isn't yours.
+        response = self.client.post(reverse("item-add-to-comparison", args=[theirs.pk]), {"group": my_group.pk})
+        self.assertEqual(response.status_code, 404)
+        # Their item through your edit form: not a valid choice.
+        response = self.client.post(reverse("comparison-update", args=[my_group.pk]),
+                                    {"name": "Mine", "items": [theirs.pk]})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(my_group.items.exists())
+
+    def test_empty_group_and_group_without_prices(self):
+        """Acceptance criterion 11."""
+        response = self.detail(self.group(name="Empty"))
+        self.assertContains(response, "This group is empty")
+        self.assertNotContains(response, 'id="comparisonChart"')
+        no_price = Item.objects.create(owner=self.user, category=self.rent, name="No price")
+        response = self.detail(self.group(no_price, name="No prices"))
+        self.assertContains(response, "No price recorded")
+        self.assertNotContains(response, 'id="comparisonChart"')
+
+    def test_query_count_does_not_grow_with_items(self):
+        """Acceptance criterion 12."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        group = self.group(self.priced_item("A", ("100", "RON"), ("90", "RON")),
+                           self.priced_item("B", ("110", "EUR")))
+
+        def queries():
+            with CaptureQueriesContext(connection) as captured:
+                self.assertEqual(self.detail(group).status_code, 200)
+            return len(captured)
+
+        with_two = queries()
+        for number in range(8):
+            group.items.add(self.priced_item(f"Item {number}", ("100", "RON"), ("95", "RON")))
+        self.assertEqual(queries(), with_two)

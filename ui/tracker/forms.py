@@ -149,8 +149,32 @@ class ComparisonGroupForm(BootstrapFormMixin, forms.ModelForm):
 
     def __init__(self, *args, owner, **kwargs):
         super().__init__(*args, **kwargs)
+        self.owner = owner
         self.fields["items"].queryset = Item.objects.filter(owner=owner).select_related("category")
         self.apply_bootstrap_classes()
+
+    def clean_name(self):
+        # The owner isn't a form field, so Django can't check "one name per person" itself:
+        # without this, a duplicate name would crash on save instead of showing an error.
+        name = self.cleaned_data["name"].strip()
+        others = ComparisonGroup.objects.filter(owner=self.owner, name__iexact=name)
+        if self.instance.pk:
+            others = others.exclude(pk=self.instance.pk)
+        if others.exists():
+            raise forms.ValidationError("You already have a comparison with this name.")
+        return name
+
+
+class AddToComparisonForm(forms.Form):
+    """The "Add to comparison" card on an item page: only your groups that don't contain the item yet."""
+
+    group = forms.ModelChoiceField(queryset=ComparisonGroup.objects.none(), empty_label=None,
+                                   label="Add to a comparison")
+
+    def __init__(self, *args, item, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["group"].queryset = ComparisonGroup.objects.filter(owner=item.owner).exclude(items=item)
+        self.fields["group"].widget.attrs["class"] = "form-select"
 
 
 class ProfileForm(BootstrapFormMixin, forms.ModelForm):

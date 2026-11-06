@@ -26,3 +26,13 @@
 .price-summary-line{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;margin:-6px 0 12px}
 .price-summary-line .price-indicators{margin-top:0}
 .price-summary-line .change-note{margin:0}
+/* Comparison groups: "Cheapest", "+12% vs cheapest", the group chart and the item-page card */
+.cheapest-badge,.vs-cheapest{display:inline-block;border-radius:20px;padding:2px 7px;font:700 10px 'DM Sans',sans-serif;line-height:1.5;white-space:nowrap}
+.cheapest-badge{background:var(--green);color:#fff}
+.vs-cheapest{background:#f2f4f3;color:#6c7a73}
+.comparison-chart-panel{min-height:0}
+.comparison-chart-wrap{height:300px}
+.item-groups{list-style:none;padding:0;margin:0 0 12px}
+.item-groups li{padding:7px 0;border-top:1px solid #f0f3f1;font-size:11px;font-weight:700}
+.item-groups a{color:var(--green)}
+.add-to-comparison .form-select{min-width:0}
