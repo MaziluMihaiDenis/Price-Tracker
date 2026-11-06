@@ -9,9 +9,9 @@ from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
 
-from tracker import checks, daily
-from tracker.models import Category, CheckAttempt, CheckRun, Item, PricePoint
-from tracker.tests.helpers import FakeInternet, fixture
+from tracker import checks, daily, rates
+from tracker.models import Category, CheckAttempt, CheckRun, ExchangeRate, Item, PricePoint
+from tracker.tests.helpers import FakeBnr, FakeInternet, fixture
 
 EMAG_URL = "https://www.emag.ro/gel/pd/TEST/"
 STORIA_URL = "https://www.storia.ro/ro/oferta/garsoniera-IDTEST"
@@ -27,9 +27,11 @@ class DailyChecksTestCase(TestCase):
             EMAG_URL: (200, fixture("emag_product.html")),
             STORIA_URL: (200, fixture("storia_listing.html")),
         })
-        patcher = mock.patch.object(checks, "http_get", self.internet)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        self.bnr = FakeBnr({rates.DAILY_URL: fixture("bnr_daily_https.xml")})
+        for patcher in (mock.patch.object(checks, "http_get", self.internet),
+                        mock.patch.object(rates, "fetch", self.bnr)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.sleeps = []
 
     def item(self, owner, url, **fields):
@@ -131,6 +133,23 @@ class RunDailyChecksTests(DailyChecksTestCase):
         self.item(self.ana, STORIA_URL)
         self.run_checks()
         self.assertEqual(self.sleeps, [daily.PAUSE_SECONDS])
+
+    def test_exchange_rates_are_updated_first(self):
+        self.item(self.ana, EMAG_URL)
+        with self.assertLogs("tracker.daily", level="INFO") as logs:
+            self.run_checks()
+        self.assertTrue(ExchangeRate.objects.filter(currency="EUR").exists())
+        self.assertIn("Exchange rates updated: 1 rate(s)", "\n".join(logs.output))
+        self.assertEqual(self.bnr.requested, [rates.DAILY_URL])
+
+    def test_bnr_down_only_warns_and_prices_are_still_checked(self):
+        """Acceptance criterion 6."""
+        self.bnr.down = True
+        self.item(self.ana, EMAG_URL)
+        with self.assertLogs("tracker.daily", level="WARNING") as logs:
+            run = self.run_checks()
+        self.assertIn("Couldn't update exchange rates", logs.output[0])
+        self.assertEqual((run.checked, run.ok), (1, 1))
 
     def test_manual_checks_are_not_linked_to_a_run(self):
         item = self.item(self.ana, EMAG_URL)

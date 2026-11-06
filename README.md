@@ -60,6 +60,18 @@ Remove the task:
 Unregister-ScheduledTask -TaskName 'Price Tracker daily check' -Confirm:$false
 ```
 
+## Exchange rates
+
+Every price is shown in each person's display currency (RON or EUR, set under Preferences), converted at the official National Bank of Romania (BNR) rate for the day the price was recorded. On weekends and holidays the previous banking day's rate is used. Saved prices are never changed; the original amount is shown underneath.
+
+Load the rate history once (BNR yearly files, from the year before your oldest price or 2025):
+
+```powershell
+.\.venv\Scripts\python.exe ui\manage.py import_rates
+```
+
+After that, the daily check (above) fetches the latest rates before checking prices. If BNR is unreachable, it logs a warning and still checks prices.
+
 ## Current scope
 
-Prices can be entered manually, or read automatically from eMAG product pages and Storia listings ("Add by link", "Check now" and the daily check). Prices are shown in their original currency; exchange-rate imports and currency conversion are future work. Django's development server is for local development; review deployment settings before making the app reachable outside a trusted network.
+Prices can be entered manually, or read automatically from eMAG product pages and Storia listings ("Add by link", "Check now" and the daily check). Prices are shown in each person's display currency (RON or EUR) at BNR's historical rates. Django's development server is for local development; review deployment settings before making the app reachable outside a trusted network.

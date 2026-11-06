@@ -10,6 +10,7 @@ from datetime import timedelta
 
 from django.utils import timezone
 
+from tracker import rates
 from tracker.checks import can_be_checked, check_item
 from tracker.models import CheckAttempt, CheckRun, Item
 
@@ -52,14 +53,25 @@ def _record_crash(item, run, error):
     return message
 
 
+def _update_exchange_rates():
+    """Fetch BNR's latest rates first. A failure is only a warning: prices are still checked."""
+    try:
+        saved = rates.import_latest_rates()
+    except Exception as error:  # noqa: BLE001 - BNR being down must never stop the price checks
+        logger.warning("Couldn't update exchange rates (%s); prices are still checked.", error)
+    else:
+        logger.info("Exchange rates updated: %d rate(s) from BNR.", saved)
+
+
 def run_daily_checks(force=False, pause_seconds=PAUSE_SECONDS, sleep=time.sleep):
-    """Check every household item that can be checked. Returns the finished CheckRun.
+    """Update exchange rates, then check every household item. Returns the finished CheckRun.
 
     force=True also checks items checked in the last 20 hours (useful for testing).
     """
     if running_check():
         raise AlreadyRunning()
     run = CheckRun.objects.create(started_at=timezone.now())
+    _update_exchange_rates()
     items = [item for item in Item.objects.select_related("owner").order_by("id") if can_be_checked(item)]
     logger.info("Daily check started: %d automatic item(s).", len(items))
 

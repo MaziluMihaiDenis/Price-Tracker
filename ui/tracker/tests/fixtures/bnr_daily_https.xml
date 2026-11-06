@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Trimmed copy of the BNR daily file (2026 style: https:// namespace). Real values. -->
+<DataSet xmlns="https://www.bnr.ro/xsd" xmlns:xsi="https://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://curs.bnr.ro/xsd/nbrfxrates.xsd">
+  <Header><Publisher>National Bank of Romania</Publisher><PublishingDate>2026-11-05</PublishingDate><MessageType>DR</MessageType></Header>
+  <Body>
+    <Subject>Reference rates</Subject>
+    <OrigCurrency>RON</OrigCurrency>
+    <Cube date="2026-11-05"><Rate currency="EUR">5.3398</Rate><Rate currency="USD">4.7556</Rate><Rate currency="JPY" multiplier="100">3.0023</Rate></Cube>
+  </Body>
+</DataSet>

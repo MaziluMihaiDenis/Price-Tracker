@@ -40,8 +40,10 @@
           displayColors: false,
           callbacks: {
             label(context) {
-              const currency = history.currencies[context.dataIndex] || "";
-              return `${Number(context.raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+              // Every point is in the viewer's currency; converted points also show the original.
+              const amount = Number(context.raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+              const original = history.originals[context.dataIndex];
+              return original ? `${amount} ${history.currency} (${original})` : `${amount} ${history.currency}`;
             },
           },
         },

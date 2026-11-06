@@ -11,6 +11,23 @@ def fixture(name):
     return (FIXTURES / name).read_text(encoding="utf-8")
 
 
+class FakeBnr:
+    """Stands in for tracker.rates.fetch: URL -> file text, or raises when `down`."""
+
+    def __init__(self, files=None, down=False):
+        self.files = dict(files or {})
+        self.down = down
+        self.requested = []
+
+    def __call__(self, url):
+        from tracker.rates import RatesUnavailable
+
+        self.requested.append(url)
+        if self.down or url not in self.files:
+            raise RatesUnavailable(f"fake BNR has no {url}")
+        return self.files[url]
+
+
 class FakeInternet:
     """Stands in for tracker.checks.http_get. Maps URL -> (status, text) or an exception.
 

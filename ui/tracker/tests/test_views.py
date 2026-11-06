@@ -7,9 +7,11 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from tracker import checks, daily
-from tracker.models import Category, CheckAttempt, CheckRun, Item, PricePoint
-from tracker.tests.helpers import FakeInternet, fixture
+from datetime import datetime
+
+from tracker import checks, daily, rates
+from tracker.models import Category, CheckAttempt, CheckRun, ComparisonGroup, ExchangeRate, Item, PricePoint, Profile
+from tracker.tests.helpers import FakeBnr, FakeInternet, fixture
 
 EMAG_URL = "https://www.emag.ro/gel/pd/TEST/"
 STORIA_URL = "https://www.storia.ro/ro/oferta/garsoniera-IDTEST"
@@ -27,9 +29,11 @@ class ViewTestCase(TestCase):
             EMAG_URL: (200, fixture("emag_product.html")),
             STORIA_URL: (200, fixture("storia_listing.html")),
         })
-        patcher = mock.patch.object(checks, "http_get", self.internet)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        self.bnr = FakeBnr({rates.DAILY_URL: fixture("bnr_daily_https.xml")})
+        for patcher in (mock.patch.object(checks, "http_get", self.internet),
+                        mock.patch.object(rates, "fetch", self.bnr)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def automatic_item(self, owner=None, **fields):
         values = {"owner": owner or self.user, "category": self.product, "name": "Gel",
@@ -213,3 +217,82 @@ class DailyCheckSummaryTests(ViewTestCase):
     def test_interrupted_run(self):
         CheckRun.objects.create(started_at=timezone.now() - timedelta(hours=3))
         self.assertIn("did not finish", self.dashboard_text())
+
+
+class CurrencyDisplayTests(ViewTestCase):
+    """Milestone 4: prices shown in the viewer's favourite currency."""
+
+    def setUp(self):
+        super().setUp()
+        ExchangeRate.objects.create(date=datetime(2026, 11, 5).date(), currency="EUR", ron_per_unit=Decimal("5.3398"))
+        self.thursday = timezone.make_aware(datetime(2026, 11, 5, 12, 0))
+        self.studio = self.automatic_item(name="Studio", url=STORIA_URL, category=self.rent)
+        PricePoint.objects.create(item=self.studio, amount=Decimal("100"), currency="EUR", recorded_at=self.thursday)
+
+    def use_currency(self, code, user=None):
+        Profile.objects.filter(user=user or self.user).update(favorite_currency=code)
+
+    def test_ron_viewer_sees_eur_price_converted_with_original_underneath(self):
+        """Acceptance criterion 1, on the item page."""
+        response = self.client.get(reverse("item-detail", args=[self.studio.pk]))
+        self.assertContains(response, '533.98 <small>RON</small><span class="price-original">100.00 EUR</span>')
+
+    def test_eur_viewer_sees_ron_price_and_chart_in_eur(self):
+        """Acceptance criterion 4."""
+        self.use_currency("EUR")
+        gel = self.automatic_item(name="Gel")
+        PricePoint.objects.create(item=gel, amount=Decimal("119.99"), currency="RON", recorded_at=self.thursday)
+        PricePoint.objects.create(item=gel, amount=Decimal("100"), currency="EUR",
+                                  recorded_at=self.thursday + timedelta(hours=1))
+        response = self.client.get(reverse("item-detail", args=[gel.pk]))
+        self.assertContains(response, '22.47 <small>EUR</small><span class="price-original">119.99 RON</span>')
+        chart = response.context["chart_data"]
+        self.assertEqual((chart["currency"], chart["values"], chart["missing"]), ("EUR", ["22.47", "100.00"], 0))
+        self.assertEqual(chart["originals"], ["119.99 RON", ""])
+
+    def test_same_currency_has_no_second_line(self):
+        gel = self.automatic_item(name="Gel")
+        PricePoint.objects.create(item=gel, amount=Decimal("119.99"), currency="RON", recorded_at=self.thursday)
+        self.assertNotContains(self.client.get(reverse("item-detail", args=[gel.pk])), "price-original")
+
+    def test_price_without_rate_shows_note_and_is_left_off_the_chart(self):
+        """Acceptance criterion 5."""
+        PricePoint.objects.create(item=self.studio, amount=Decimal("350"), currency="EUR",
+                                  recorded_at=timezone.make_aware(datetime(2020, 6, 1, 12, 0)))
+        response = self.client.get(reverse("item-detail", args=[self.studio.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "no rate")
+        self.assertContains(response, "1 price without an exchange rate")
+        self.assertEqual(response.context["chart_data"]["values"], ["533.98"])
+
+    def test_two_users_see_their_own_currency(self):
+        self.use_currency("EUR", self.other)
+        theirs = self.automatic_item(owner=self.other, name="Their studio", url=STORIA_URL + "X", category=self.rent)
+        PricePoint.objects.create(item=theirs, amount=Decimal("533.98"), currency="RON", recorded_at=self.thursday)
+        self.assertContains(self.client.get(reverse("item-list")), "533.98 <small>RON</small>")
+        self.client.force_login(self.other)
+        self.assertContains(self.client.get(reverse("item-list")), "100.00 <small>EUR</small>")
+
+    def test_dashboard_list_and_comparison_are_converted(self):
+        group = ComparisonGroup.objects.create(owner=self.user, name="Studios")
+        group.items.add(self.studio)
+        for url in (reverse("dashboard"), reverse("item-list"), reverse("comparison-detail", args=[group.pk])):
+            self.assertContains(self.client.get(url), '<span class="price-original">100.00 EUR</span>', msg_prefix=url)
+
+    def test_check_now_message_includes_converted_amount(self):
+        """Acceptance criterion 8."""
+        self.use_currency("EUR")
+        gel = self.automatic_item(name="Gel")
+        response = self.client.post(reverse("item-check", args=[gel.pk]), follow=True)
+        self.assertContains(response, "Price unchanged: 119.99 RON. (≈ 22.47 EUR in your currency)")
+        self.assertEqual(gel.check_attempts.get().message, "Price unchanged: 119.99 RON.")  # history unchanged
+
+    def test_add_by_link_message_includes_converted_amount(self):
+        self.use_currency("EUR")
+        self.client.post(reverse("item-add-link"), {"step": "preview", "url": EMAG_URL})
+        response = self.client.post(reverse("item-add-link"), {
+            "step": "save", "name": "Gel", "category": self.product.pk, "period": "one_time"}, follow=True)
+        self.assertContains(response, "Now tracking Gel at 119.99 RON (≈ 22.47 EUR).")
+
+    def test_settings_page_no_longer_says_conversion_is_off(self):
+        self.assertNotContains(self.client.get(reverse("settings")), "not enabled yet")

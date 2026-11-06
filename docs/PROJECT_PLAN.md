@@ -309,6 +309,22 @@ Checked 2026-10-31 with a basic request plus the first lines of each site's `rob
 
 The order is "riskiest first, then foundations": a spike first, so we find out early whether these sites can be read. Manual entry comes before automatic tracking, because automatic tracking is just another way of creating price records.
 
+### Roadmap status (updated 2026-11-06)
+
+| # | Milestone | Status | Notes |
+|---|---|---|---|
+| 1 | Scraping spike | ✅ Done | eMAG + Storia chosen. [Report](spikes/scraping-results.md), [plan](features/milestone-1-scraping-spike.md) |
+| 2 | Project setup | ✅ Done | Django app in `ui/`, logins, favourite-currency setting (commit `e2097aa`) |
+| 3 | Core data and manual entry | 🟡 Mostly done | Missing: category custom fields (`field_definitions` / `custom_values` aren't used by any form yet), deleting items |
+| 4 | Currencies | ⏭️ **Next** | `ExchangeRate` table exists but is empty; the favourite currency isn't used yet; the chart mixes RON and EUR |
+| 5 | History and indicators | 🟡 Partly done | Chart done. Missing: "↓8%" / "lowest ever" indicators, and one-currency charts (needs M4) |
+| 6 | Automatic tracking | ✅ Done | eMAG + Storia adapters, "Add by link" with preview, "Check now", statuses (commit `a6d08e2`) |
+| 7 | Scheduling | ✅ Built, ⏳ task not registered yet | `check_prices`, `CheckRun`, dashboard line (commit `c408d8e`). Run `scripts\register_daily_check.ps1` once to start the 17:00 daily task. [Plan](features/milestone-7-daily-checks.md) |
+| 8 | Comparison groups | 🟡 Partly done | Create and view as a table. Missing: one chart in your currency (needs M4), editing a group, mixed-period warning |
+| 9 | Household rollout | ⬜ Not started | Waitress, backup script, instructions for family members |
+
+**Order from here:** M4 (currencies) → M5 (indicators) → M8 (comparison chart and editing) → M3 gaps → M9. M4 comes first because indicators and comparisons are only meaningful once RON and EUR prices can be shown in one currency.
+
 | # | Milestone | Depends on | Main tasks | Acceptance criteria (how we know it's done) |
 |---|---|---|---|---|
 | 1 | **Scraping spike** (throwaway) | – | Plain Python script that fetches one product or listing page from each of the 5 sites and tries to extract the price | You have a written result for each site (works / blocked / needs Playwright) and **2 MVP sites are chosen** |
@@ -342,14 +358,14 @@ The order is "riskiest first, then foundations": a spike first, so we find out e
 | A site redesign breaks an adapter | Error status on the item; tests using saved pages make fixes quick |
 | Scope creep | Stick to the MVP list; new ideas go into "Optional" |
 | Flexible categories become confusing | Allow only simple field types (text, number, choice) |
-| The PC is off, so a check is missed | Accept gaps; optionally "catch up" on startup |
+| The PC is off, so a check is missed | Accept gaps; the daily task catches up as soon as the PC is on (M7) |
 
 ### Assumptions
 
 - Daily checks are frequent enough.
 - Only the admin creates categories in the MVP.
 - Personal, low-volume scraping is acceptable, subject to each site's terms.
-- Django supports Python 3.14 (confirm at setup).
+- ~~Django supports Python 3.14 (confirm at setup).~~ Confirmed: Django 5.2.18 runs on Python 3.14.0.
 
 ### Costs
 
@@ -364,9 +380,12 @@ The order is "riskiest first, then foundations": a spike first, so we find out e
 
 ## 11. Recommended next steps
 
-1. Start milestone 1 (the scraping spike) in a separate request, for example with `/plan-feature`.
-2. Answer the open questions above.
-3. Then follow the milestones in order.
+*Updated 2026-11-06.*
+
+1. Register the daily task once: `powershell -ExecutionPolicy Bypass -File scripts\register_daily_check.ps1`.
+2. Plan and build **milestone 4 (currencies)** with `/plan-feature`, then `/implement-feature`.
+3. Answer open questions 2 and 3 above.
+4. Then follow the order in "Roadmap status" (section 9).
 
 ## 12. Glossary
 

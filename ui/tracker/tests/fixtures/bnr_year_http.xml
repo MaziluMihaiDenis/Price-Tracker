@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Trimmed copy of a BNR yearly file (2025 style: http:// namespace). Real values. -->
+<DataSet xmlns="http://www.bnr.ro/xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.bnr.ro/xsd nbrfxrates.xsd">
+  <Header><Publisher>National Bank of Romania</Publisher><PublishingDate>2025-12-31</PublishingDate><MessageType>DR</MessageType></Header>
+  <Body>
+    <Subject>Reference rates</Subject>
+    <OrigCurrency>RON</OrigCurrency>
+    <Cube date="2025-12-30"><Rate currency="EUR">5.0963</Rate><Rate currency="USD">4.3286</Rate><Rate currency="HUF" multiplier="100">1.3195</Rate></Cube>
+    <Cube date="2025-12-31"><Rate currency="EUR">5.0985</Rate><Rate currency="USD">4.3417</Rate><Rate currency="HUF" multiplier="100">1.3250</Rate></Cube>
+  </Body>
+</DataSet>

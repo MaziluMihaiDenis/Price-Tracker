@@ -12,12 +12,22 @@ from tracker.adapters import adapter_for
 from tracker.adapters.base import PageResult
 from tracker.checks import can_be_checked, check_item, read_page, seconds_until_next_check, start_tracking
 from tracker.forms import AutomaticItemForm, ComparisonGroupForm, ItemForm, LinkForm, PricePointForm, ProfileForm
+from tracker.money import RateBook, display_currency_for, display_price
 from tracker.daily import running_check
 from tracker.models import Category, CheckAttempt, CheckRun, ComparisonGroup, Item, PricePoint
 
 # The price read during "Add by link" is kept in the session between preview and save,
 # so the saved price is the one the app read, not one sent back by the browser.
 LINK_PREVIEW_KEY = "link_preview"
+
+
+def _in_viewer_currency(user, amount, currency):
+    """'22.47 EUR' when the viewer's currency differs and a rate is known, else ''.
+
+    Used in flash messages only; stored check history stays in the original currency.
+    """
+    shown = display_price(amount, currency, timezone.now(), display_currency_for(user), RateBook.load())
+    return f"{shown.amount} {shown.currency}" if shown.converted else ""
 
 
 def _items_for(user):
@@ -135,7 +145,9 @@ def item_add_link(request):
                               currency=preview["currency"], available=preview["available"])
             start_tracking(item, page)
             del request.session[LINK_PREVIEW_KEY]
-            messages.success(request, f"Now tracking {item.name} at {page.price} {page.currency}.")
+            converted = _in_viewer_currency(request.user, page.price, page.currency)
+            messages.success(request, f"Now tracking {item.name} at {page.price} {page.currency}"
+                                      f"{f' (≈ {converted})' if converted else ''}.")
             return redirect("item-detail", pk=item.pk)
         return render(request, "tracker/item_link_form.html", {"preview": preview, "details_form": details_form})
 
@@ -180,7 +192,9 @@ def item_check(request, pk):
         return redirect("item-detail", pk=item.pk)
     result = check_item(item)
     if result.outcome == CheckAttempt.Outcome.OK:
-        messages.success(request, result.message)
+        latest = item.price_points.order_by("-recorded_at", "-id").first()
+        converted = _in_viewer_currency(request.user, latest.amount, latest.currency) if latest else ""
+        messages.success(request, f"{result.message} (≈ {converted} in your currency)" if converted else result.message)
     else:
         messages.warning(request, f"Couldn't check the price: {result.message}")
     return redirect("item-detail", pk=item.pk)
@@ -215,11 +229,19 @@ def item_detail(request, pk):
             messages.success(request, "Price added to the history.")
             return redirect("item-detail", pk=item.pk)
     points = list(item.price_points.order_by("recorded_at", "id"))
-    chart_data = {
-        "labels": [timezone.localtime(point.recorded_at).strftime("%d %b %Y") for point in points],
-        "values": [str(point.amount) for point in points],
-        "currencies": [point.currency for point in points],
-    }
+    # The whole chart is drawn in the viewer's currency, each point at its own day's rate.
+    # Points without a rate are left out (and counted), so the line never mixes currencies.
+    currency, book = display_currency_for(request.user), RateBook.load()
+    chart_data = {"labels": [], "values": [], "originals": [], "currency": currency, "missing": 0}
+    for point in points:
+        shown = display_price(point.amount, point.currency, point.recorded_at, currency, book)
+        if shown.missing_rate:
+            chart_data["missing"] += 1
+            continue
+        chart_data["labels"].append(timezone.localtime(point.recorded_at).strftime("%d %b %Y"))
+        chart_data["values"].append(str(shown.amount))
+        chart_data["originals"].append(
+            f"{shown.original_amount:.2f} {shown.original_currency}" if shown.converted else "")
     return render(request, "tracker/item_detail.html", {
         "item": item,
         "price_form": price_form,
