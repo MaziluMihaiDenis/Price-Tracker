@@ -78,7 +78,7 @@ class Item(models.Model):
         cached = getattr(self, "_latest_prices", None)
         if cached is not None:
             return cached
-        return list(self.price_points.order_by("-recorded_at")[:2])
+        return list(self.price_points.order_by("-recorded_at", "-id")[:2])
 
     @property
     def current_price(self):

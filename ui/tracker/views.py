@@ -1,4 +1,5 @@
 import math
+from datetime import timedelta
 from decimal import Decimal
 
 from django.contrib import messages
@@ -14,11 +15,15 @@ from tracker.checks import can_be_checked, check_item, read_page, seconds_until_
 from tracker.forms import AutomaticItemForm, ComparisonGroupForm, ItemForm, LinkForm, PricePointForm, ProfileForm
 from tracker.money import RateBook, display_currency_for, display_price
 from tracker.daily import running_check
+from tracker.indicators import attach_summaries, summarize
 from tracker.models import Category, CheckAttempt, CheckRun, ComparisonGroup, Item, PricePoint
 
 # The price read during "Add by link" is kept in the session between preview and save,
 # so the saved price is the one the app read, not one sent back by the browser.
 LINK_PREVIEW_KEY = "link_preview"
+# The dashboard's "Price changes" panel: changes from the last 7 days, biggest first.
+PRICE_CHANGES_WINDOW = timedelta(days=7)
+PRICE_CHANGES_SHOWN = 6
 
 
 def _in_viewer_currency(user, amount, currency):
@@ -35,7 +40,7 @@ def _items_for(user):
         Item.objects.filter(owner=user)
         .select_related("category")
         .prefetch_related(
-            Prefetch("price_points", queryset=PricePoint.objects.order_by("-recorded_at")[:2], to_attr="_latest_prices")
+            Prefetch("price_points", queryset=PricePoint.objects.order_by("-recorded_at", "-id")[:2], to_attr="_latest_prices")
         )
     )
 
@@ -64,16 +69,25 @@ def _daily_check_summary(user):
 @login_required
 def dashboard(request):
     items = _items_for(request.user)
-    recent_items = list(items[:5])
+    book = RateBook.load()
+    # Every item (not only the 5 recent ones) is summarised, for the "Price changes" panel.
+    all_items = attach_summaries(items, book)
+    changed_since = timezone.now() - PRICE_CHANGES_WINDOW
+    price_changes = sorted(
+        (item for item in all_items if item.price_summary.change and item.price_summary.change.since >= changed_since),
+        key=lambda item: item.price_summary.change.percent, reverse=True,
+    )[:PRICE_CHANGES_SHOWN]
     recent_prices = PricePoint.objects.filter(item__owner=request.user).select_related(
         "item", "item__category"
     )[:6]
     context = {
         "active_count": items.filter(status=Item.Status.ACTIVE).count(),
         "attention_count": items.filter(status__in=[Item.Status.ERROR, Item.Status.REMOVED]).count(),
-        "item_count": items.count(),
-        "recent_items": recent_items,
+        "item_count": len(all_items),
+        "recent_items": all_items[:5],
         "recent_prices": recent_prices,
+        "price_changes": price_changes,
+        "rate_book": book,  # shared with the templates, so rates are loaded only once
         "groups": ComparisonGroup.objects.filter(owner=request.user).prefetch_related("items")[:3],
         "daily_check": _daily_check_summary(request.user),
     }
@@ -92,8 +106,10 @@ def item_list(request):
         items = items.filter(category_id=category_id)
     if status in Item.Status.values:
         items = items.filter(status=status)
+    book = RateBook.load()
     return render(request, "tracker/item_list.html", {
-        "items": items,
+        "items": attach_summaries(items, book),
+        "rate_book": book,
         "categories": Category.objects.all(),
         "query": query,
         "selected_category": category_id,
@@ -247,6 +263,8 @@ def item_detail(request, pk):
         "price_form": price_form,
         "price_points": list(reversed(points)),
         "chart_data": chart_data,
+        "summary": summarize(points, book),  # the full history is already loaded: no extra query
+        "rate_book": book,
         "can_check": can_be_checked(item),
     })
 
@@ -279,7 +297,7 @@ def comparison_detail(request, pk):
                 queryset=Item.objects.select_related("category").prefetch_related(
                     Prefetch(
                         "price_points",
-                        queryset=PricePoint.objects.order_by("-recorded_at")[:2],
+                        queryset=PricePoint.objects.order_by("-recorded_at", "-id")[:2],
                         to_attr="_latest_prices",
                     )
                 ),

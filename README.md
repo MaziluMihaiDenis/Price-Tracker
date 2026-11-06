@@ -74,4 +74,4 @@ After that, the daily check (above) fetches the latest rates before checking pri
 
 ## Current scope
 
-Prices can be entered manually, or read automatically from eMAG product pages and Storia listings ("Add by link", "Check now" and the daily check). Prices are shown in each person's display currency (RON or EUR) at BNR's historical rates. Django's development server is for local development; review deployment settings before making the app reachable outside a trusted network.
+Prices can be entered manually, or read automatically from eMAG product pages and Storia listings ("Add by link", "Check now" and the daily check). Prices are shown in each person's display currency (RON or EUR) at BNR's historical rates. Each price shows how it changed since the previous different price ("↓ 7.7%", compared in the price's own currency, so exchange-rate movement never creates an arrow), a "Lowest ever" badge, and the item page shows the lowest and highest prices; the dashboard lists this week's price changes. Django's development server is for local development; review deployment settings before making the app reachable outside a trusted network.

@@ -316,14 +316,14 @@ The order is "riskiest first, then foundations": a spike first, so we find out e
 | 1 | Scraping spike | ✅ Done | eMAG + Storia chosen. [Report](spikes/scraping-results.md), [plan](features/milestone-1-scraping-spike.md) |
 | 2 | Project setup | ✅ Done | Django app in `ui/`, logins, favourite-currency setting (commit `e2097aa`) |
 | 3 | Core data and manual entry | 🟡 Mostly done | Missing: category custom fields (`field_definitions` / `custom_values` aren't used by any form yet), deleting items |
-| 4 | Currencies | ⏭️ **Next** | `ExchangeRate` table exists but is empty; the favourite currency isn't used yet; the chart mixes RON and EUR |
-| 5 | History and indicators | 🟡 Partly done | Chart done. Missing: "↓8%" / "lowest ever" indicators, and one-currency charts (needs M4) |
+| 4 | Currencies | ✅ Done | BNR rates imported and updated daily; every price, chart and message shown in each person's currency (commit `7301ce8`). [Plan](features/milestone-4-currencies.md) |
+| 5 | History and indicators | ✅ Built, not committed yet | One-currency chart, "↓ 7.7%" arrows, "Lowest ever" badge, lowest/highest on the item page, dashboard "Price changes" panel. [Plan](features/milestone-5-indicators.md) |
 | 6 | Automatic tracking | ✅ Done | eMAG + Storia adapters, "Add by link" with preview, "Check now", statuses (commit `a6d08e2`) |
 | 7 | Scheduling | ✅ Built, ⏳ task not registered yet | `check_prices`, `CheckRun`, dashboard line (commit `c408d8e`). Run `scripts\register_daily_check.ps1` once to start the 17:00 daily task. [Plan](features/milestone-7-daily-checks.md) |
-| 8 | Comparison groups | 🟡 Partly done | Create and view as a table. Missing: one chart in your currency (needs M4), editing a group, mixed-period warning |
+| 8 | Comparison groups | ⏭️ **Next** (🟡 partly done) | Create and view as a table, prices in your currency. Missing: one chart for the group, editing a group, mixed-period warning, change arrows on comparison pages |
 | 9 | Household rollout | ⬜ Not started | Waitress, backup script, instructions for family members |
 
-**Order from here:** M4 (currencies) → M5 (indicators) → M8 (comparison chart and editing) → M3 gaps → M9. M4 comes first because indicators and comparisons are only meaningful once RON and EUR prices can be shown in one currency.
+**Order from here:** M8 (comparison chart and editing) → M3 gaps → M9. M4 and M5 are done: RON and EUR prices are shown in one currency, with change indicators.
 
 | # | Milestone | Depends on | Main tasks | Acceptance criteria (how we know it's done) |
 |---|---|---|---|---|
@@ -383,7 +383,7 @@ The order is "riskiest first, then foundations": a spike first, so we find out e
 *Updated 2026-11-06.*
 
 1. Register the daily task once: `powershell -ExecutionPolicy Bypass -File scripts\register_daily_check.ps1`.
-2. Plan and build **milestone 4 (currencies)** with `/plan-feature`, then `/implement-feature`.
+2. Plan and build **milestone 8 (comparison groups)** with `/plan-feature`, then `/implement-feature`.
 3. Answer open questions 2 and 3 above.
 4. Then follow the order in "Roadmap status" (section 9).
 

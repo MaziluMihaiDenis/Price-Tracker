@@ -296,3 +296,137 @@ class CurrencyDisplayTests(ViewTestCase):
 
     def test_settings_page_no_longer_says_conversion_is_off(self):
         self.assertNotContains(self.client.get(reverse("settings")), "not enabled yet")
+
+
+class IndicatorDisplayTests(ViewTestCase):
+    """Milestone 5: price change arrows, "Lowest ever", and the "Price changes" panel."""
+
+    def item_with_prices(self, name, *amounts, owner=None, days_ago=None):
+        """An item with RON prices one day apart; the last price is `days_ago` days old (default: today)."""
+        item = Item.objects.create(owner=owner or self.user, category=self.product, name=name)
+        last = timezone.now() - timedelta(days=days_ago or 0)
+        for position, amount in enumerate(amounts):
+            PricePoint.objects.create(item=item, amount=Decimal(amount), currency="RON",
+                                      recorded_at=last - timedelta(days=len(amounts) - 1 - position))
+        return item
+
+    def test_item_list_shows_a_green_drop(self):
+        """Acceptance criterion 1."""
+        self.item_with_prices("Gel", "129.99", "119.99")
+        response = self.client.get(reverse("item-list"))
+        self.assertContains(response, 'class="price-change change-down"')
+        self.assertContains(response, '<span class="visually-hidden">down</span> 7.7%')
+
+    def test_repeats_then_a_rise(self):
+        """Acceptance criterion 2."""
+        self.item_with_prices("Detergent", "100", "100", "100", "110")
+        response = self.client.get(reverse("item-list"))
+        self.assertContains(response, '<span class="visually-hidden">up</span> 10%')
+
+    def test_no_indicator_for_a_single_or_unchanged_price(self):
+        """Acceptance criterion 3."""
+        self.item_with_prices("Once", "50")
+        self.item_with_prices("Same", "70", "70")
+        for page in ("item-list", "dashboard"):
+            response = self.client.get(reverse(page))
+            self.assertNotContains(response, "price-change change-")
+            self.assertNotContains(response, "Lowest ever")
+
+    def test_lowest_ever_badge(self):
+        """Acceptance criterion 6, on the item list."""
+        self.item_with_prices("Back at lowest", "120", "110", "115", "110")
+        self.item_with_prices("Not lowest", "120", "110", "115")
+        response = self.client.get(reverse("item-list"))
+        self.assertContains(response, '<span class="lowest-badge">Lowest ever</span>', count=1)
+
+    def test_price_changes_panel_window_and_order(self):
+        """Acceptance criterion 7."""
+        self.item_with_prices("Small drop", "100", "95", days_ago=1)  # 5%
+        self.item_with_prices("Big rise", "100", "130", days_ago=3)  # 30%
+        self.item_with_prices("Old change", "100", "50", days_ago=10)  # outside the 7 days
+        response = self.client.get(reverse("dashboard"))
+        names = [item.name for item in response.context["price_changes"]]
+        self.assertEqual(names, ["Big rise", "Small drop"])
+        self.assertNotContains(response, "No price changes in the last 7 days.")
+
+    def test_change_counts_from_when_the_new_price_first_appeared(self):
+        """Unchanged daily checks after an old change don't bring it back into the panel."""
+        item = self.item_with_prices("Old drop", "100", "80", days_ago=10)
+        for days_ago in (2, 1, 0):
+            PricePoint.objects.create(item=item, amount=Decimal("80"), currency="RON",
+                                      recorded_at=timezone.now() - timedelta(days=days_ago))
+        response = self.client.get(reverse("dashboard"))
+        self.assertEqual(response.context["price_changes"], [])
+        self.assertContains(response, "No price changes in the last 7 days.")
+
+    def test_panel_shows_only_your_own_items(self):
+        """Acceptance criterion 8."""
+        self.item_with_prices("Ana's gel", "100", "90")
+        self.item_with_prices("Bogdan's rent", "2000", "2500", owner=self.other)
+        response = self.client.get(reverse("dashboard"))
+        self.assertEqual([item.name for item in response.context["price_changes"]], ["Ana's gel"])
+        self.assertNotContains(response, "Bogdan&#x27;s rent")
+        self.client.force_login(self.other)
+        response = self.client.get(reverse("dashboard"))
+        self.assertEqual([item.name for item in response.context["price_changes"]], ["Bogdan's rent"])
+        self.assertNotContains(response, "Ana&#x27;s gel")
+
+    def test_item_page_shows_change_lowest_and_highest(self):
+        """Acceptance criterion 9."""
+        item = self.item_with_prices("Gel", "120", "110", "130", "119.99")
+        response = self.client.get(reverse("item-detail", args=[item.pk]))
+        self.assertContains(response, '<span class="visually-hidden">down</span> 7.7%')
+        self.assertContains(response, "Was 130.00 RON until")
+        self.assertContains(response, "Lowest: <strong>110.00 <small>RON</small></strong>")
+        self.assertContains(response, "Highest: <strong>130.00 <small>RON</small></strong>")
+
+    def test_item_page_converts_lowest_and_highest_to_the_viewers_currency(self):
+        """Acceptance criterion 9 (EUR viewer)."""
+        ExchangeRate.objects.create(date=datetime(2026, 11, 5).date(), currency="EUR", ron_per_unit=Decimal("5.3398"))
+        Profile.objects.filter(user=self.user).update(favorite_currency="EUR")
+        item = Item.objects.create(owner=self.user, category=self.product, name="Gel")
+        for day, amount in ((5, "119.99"), (6, "129.99")):
+            PricePoint.objects.create(item=item, amount=Decimal(amount), currency="RON",
+                                      recorded_at=timezone.make_aware(datetime(2026, 11, day, 12)))
+        response = self.client.get(reverse("item-detail", args=[item.pk]))
+        self.assertContains(response, 'Lowest: <strong>22.47 <small>EUR</small><span class="price-original">119.99 RON</span>')
+
+    def test_unchanged_eur_rent_has_no_arrow_for_a_ron_viewer(self):
+        """Acceptance criterion 4, through the page."""
+        ExchangeRate.objects.create(date=datetime(2026, 10, 30).date(), currency="EUR", ron_per_unit=Decimal("5.3426"))
+        ExchangeRate.objects.create(date=datetime(2026, 11, 5).date(), currency="EUR", ron_per_unit=Decimal("5.3398"))
+        rent = Item.objects.create(owner=self.user, category=self.rent, name="Rent")
+        for day in (datetime(2026, 10, 30, 12), datetime(2026, 11, 5, 12)):
+            PricePoint.objects.create(item=rent, amount=Decimal("470"), currency="EUR",
+                                      recorded_at=timezone.make_aware(day))
+        for url in (reverse("item-list"), reverse("item-detail", args=[rent.pk])):
+            self.assertNotContains(self.client.get(url), "price-change change-")
+
+    def test_query_count_does_not_grow_with_items(self):
+        """Acceptance criterion 10: one query loads every item's history."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        def queries(page):
+            with CaptureQueriesContext(connection) as captured:
+                self.assertEqual(self.client.get(reverse(page)).status_code, 200)
+            rate_loads = [q for q in captured if 'FROM "tracker_exchangerate"' in q["sql"]]
+            self.assertEqual(len(rate_loads), 1, "the view's rate book is shared with the templates")
+            return len(captured)
+
+        self.item_with_prices("First", "100", "90")
+        with_one = {page: queries(page) for page in ("dashboard", "item-list")}
+        for number in range(9):
+            self.item_with_prices(f"Item {number}", "100", "90", "95")
+        self.assertEqual({page: queries(page) for page in ("dashboard", "item-list")}, with_one)
+
+    def test_prices_saved_at_the_same_minute_use_the_last_saved_one(self):
+        """The current price and the arrow agree when several prices share one time."""
+        item = Item.objects.create(owner=self.user, category=self.product, name="Pillow")
+        same_time = timezone.now() - timedelta(hours=1)
+        for amount in ("150.00", "149.99"):
+            PricePoint.objects.create(item=item, amount=Decimal(amount), currency="RON", recorded_at=same_time)
+        self.assertEqual(Item.objects.get(pk=item.pk).current_price.amount, Decimal("149.99"))
+        response = self.client.get(reverse("item-list"))
+        self.assertContains(response, "149.99 <small>RON</small>")
+        self.assertNotContains(response, "150.00 <small>RON</small>")
