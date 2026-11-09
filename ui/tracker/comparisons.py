@@ -11,6 +11,7 @@ value, and one-time purchases only with each other, never a rent with a TV.
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
+from tracker import custom_fields
 from tracker.indicators import TENTH
 from tracker.models import Item
 from tracker.money import CENT, DisplayPrice, display_price
@@ -91,3 +92,32 @@ def chart_data(items, currency, book):
         if points:
             data["series"].append({"name": item.name, "points": points})
     return data
+
+
+def field_columns(rows):
+    """Custom-field columns and map pins for a group whose items all share one category.
+
+    Returns (definitions, map_points). Each row gets `row.field_cells`, one per column:
+    {"text": ..., "pin": n} where `pin` is set on the Location cell when the item has a pin.
+    The pin number is the row number, so the map and the table match.
+    With mixed categories there are no columns and no map.
+    """
+    for row in rows:
+        row.field_cells = []
+    categories = {row.item.category_id for row in rows}
+    if len(categories) != 1:
+        return [], []
+    definitions = custom_fields.definitions(rows[0].item.category)
+    points = []
+    for number, row in enumerate(rows, start=1):
+        values = row.item.custom_values or {}
+        location = custom_fields.item_location(row.item)
+        has_pin = bool(location and location["lat"] is not None)
+        row.field_cells = [{"text": custom_fields.display_value(d, values.get(d["key"])),
+                            "pin": number if has_pin and d["type"] == custom_fields.LOCATION else None}
+                           for d in definitions]
+        if has_pin:
+            price = f"{row.price.amount:.2f} {row.price.currency}" if row.price else "No price yet"
+            points.append({"lat": location["lat"], "lon": location["lon"], "number": number,
+                           "name": row.item.name, "price": price, "address": location["address"]})
+    return definitions, points

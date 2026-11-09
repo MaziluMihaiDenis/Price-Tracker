@@ -5,6 +5,7 @@ from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Prefetch, Q
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import dateformat, timezone
 from django.views.decorators.http import require_POST
@@ -12,9 +13,9 @@ from django.views.decorators.http import require_POST
 from tracker.adapters import adapter_for
 from tracker.adapters.base import PageResult
 from tracker.checks import can_be_checked, check_item, read_page, seconds_until_next_check, start_tracking
-from tracker import comparisons
-from tracker.forms import (AddToComparisonForm, AutomaticItemForm, ComparisonGroupForm, ItemForm, LinkForm,
-                           PricePointForm, ProfileForm)
+from tracker import comparisons, custom_fields
+from tracker.forms import (AddToComparisonForm, AutomaticItemForm, CategoryForm, ComparisonGroupForm, ItemForm,
+                           LinkForm, PricePointForm, ProfileForm, field_definition_formset)
 from tracker.money import RateBook, display_currency_for, display_price
 from tracker.daily import running_check
 from tracker.indicators import attach_summaries, summarize
@@ -135,24 +136,58 @@ def item_list(request):
     })
 
 
+def _custom_blocks(request, details_form, item=None):
+    """One custom-fields form per category, for the item forms.
+
+    The page shows only the chosen category's block. Only that block is bound to the posted
+    data and validated: values typed into another category's block are never saved.
+    """
+    chosen = str(details_form["category"].value() or "").strip()
+    if chosen.isdigit():
+        chosen = str(int(chosen))  # "04" is category 4 for the form, so pick block 4 too
+    values = item.custom_values if item else {}
+    data = request.POST if request.method == "POST" else None
+    return chosen, [custom_fields.CustomValuesForm(data if str(category.pk) == chosen else None,
+                                                   category=category, values=values)
+                    for category in Category.objects.all()]
+
+
+def _custom_values_or_none(details_form, blocks, stored=None):
+    """The merged custom values when the chosen category's block is valid, else None.
+
+    Call only after `details_form` is valid.
+    """
+    category = details_form.cleaned_data["category"]
+    block = next(block for block in blocks if block.category.pk == category.pk)
+    if not block.is_valid():
+        return None
+    return custom_fields.merge_values(stored, category, block.values())
+
+
 @login_required
 def item_create(request):
     item_form = ItemForm(request.POST or None)
     price_form = PricePointForm(request.POST or None, prefix="price")
+    chosen, blocks = _custom_blocks(request, item_form)
     if request.method == "POST" and item_form.is_valid() and price_form.is_valid():
-        item = item_form.save(commit=False)
-        item.owner = request.user
-        item.source = Item.Source.MANUAL
-        item.save()
-        price = price_form.save(commit=False)
-        price.item = item
-        price.source = PricePoint.Source.MANUAL
-        price.save()
-        messages.success(request, "Item and first price saved.")
-        return redirect("item-detail", pk=item.pk)
+        values = _custom_values_or_none(item_form, blocks)
+        if values is not None:
+            item = item_form.save(commit=False)
+            item.owner = request.user
+            item.source = Item.Source.MANUAL
+            item.custom_values = values
+            item.save()
+            price = price_form.save(commit=False)
+            price.item = item
+            price.source = PricePoint.Source.MANUAL
+            price.save()
+            messages.success(request, "Item and first price saved.")
+            return redirect("item-detail", pk=item.pk)
     return render(request, "tracker/item_form.html", {
         "item_form": item_form,
         "price_form": price_form,
+        "custom_blocks": blocks,
+        "selected_category": chosen,
         "page_title": "Add an item",
         "submit_label": "Save item",
     })
@@ -174,7 +209,9 @@ def item_add_link(request):
 
     if step == "save" and preview:
         details_form = AutomaticItemForm(request.POST)
-        if details_form.is_valid():
+        chosen, blocks = _custom_blocks(request, details_form)
+        values = _custom_values_or_none(details_form, blocks) if details_form.is_valid() else None
+        if values is not None:
             existing = Item.objects.filter(owner=request.user, url=preview["url"]).first()
             if existing:
                 messages.info(request, _already_tracked_message(existing))
@@ -182,6 +219,7 @@ def item_add_link(request):
             item = details_form.save(commit=False)
             item.owner = request.user
             item.url = preview["url"]
+            item.custom_values = values
             page = PageResult(title=preview["title"], price=Decimal(preview["price"]),
                               currency=preview["currency"], available=preview["available"])
             start_tracking(item, page)
@@ -190,7 +228,8 @@ def item_add_link(request):
             messages.success(request, f"Now tracking {item.name} at {page.price} {page.currency}"
                                       f"{f' (≈ {converted})' if converted else ''}.")
             return redirect("item-detail", pk=item.pk)
-        return render(request, "tracker/item_link_form.html", {"preview": preview, "details_form": details_form})
+        return render(request, "tracker/item_link_form.html", {
+            "preview": preview, "details_form": details_form, "custom_blocks": blocks, "selected_category": chosen})
 
     link_form = LinkForm(request.POST if step == "preview" else None)
     existing_item = None
@@ -212,7 +251,10 @@ def item_add_link(request):
                 }
                 request.session[LINK_PREVIEW_KEY] = preview
                 details_form = AutomaticItemForm(initial={"name": page.title[:180], "period": adapter.default_period})
-                return render(request, "tracker/item_link_form.html", {"preview": preview, "details_form": details_form})
+                chosen, blocks = _custom_blocks(request, details_form)
+                return render(request, "tracker/item_link_form.html", {
+                    "preview": preview, "details_form": details_form, "custom_blocks": blocks,
+                    "selected_category": chosen})
     elif request.method == "GET":
         request.session.pop(LINK_PREVIEW_KEY, None)  # "Start over" clears an old preview
     return render(request, "tracker/item_link_form.html", {"link_form": link_form, "existing_item": existing_item})
@@ -245,12 +287,19 @@ def item_check(request, pk):
 def item_update(request, pk):
     item = get_object_or_404(Item, pk=pk, owner=request.user)
     form = ItemForm(request.POST or None, instance=item)
+    chosen, blocks = _custom_blocks(request, form, item)
     if request.method == "POST" and form.is_valid():
-        form.save()
-        messages.success(request, "Item details updated.")
-        return redirect("item-detail", pk=item.pk)
+        values = _custom_values_or_none(form, blocks, item.custom_values)
+        if values is not None:
+            item = form.save(commit=False)
+            item.custom_values = values
+            item.save()
+            messages.success(request, "Item details updated.")
+            return redirect("item-detail", pk=item.pk)
     return render(request, "tracker/item_form.html", {
         "item_form": form,
+        "custom_blocks": blocks,
+        "selected_category": chosen,
         "page_title": "Edit item",
         "submit_label": "Save changes",
         "editing": True,
@@ -337,6 +386,7 @@ def item_detail(request, pk):
         chart_data["values"].append(str(shown.amount))
         chart_data["originals"].append(
             f"{shown.original_amount:.2f} {shown.original_currency}" if shown.converted else "")
+    location = custom_fields.item_location(item)
     return render(request, "tracker/item_detail.html", {
         "item": item,
         "price_form": price_form,
@@ -345,6 +395,11 @@ def item_detail(request, pk):
         "summary": summarize(points, book),  # the full history is already loaded: no extra query
         "rate_book": book,
         "can_check": can_be_checked(item),
+        "custom_rows": [(d, text) for d, text in custom_fields.display_rows(item) if d["type"] != custom_fields.LOCATION],
+        "location": location,
+        "location_label": (custom_fields.location_definition(item.category) or {}).get("label", "Location"),
+        "map_data": {"points": [{"lat": location["lat"], "lon": location["lon"], "name": item.name,
+                                 "address": location["address"]}]} if location and location["lat"] is not None else None,
         "item_groups": item.comparison_groups.filter(owner=request.user),
         "has_groups": ComparisonGroup.objects.filter(owner=request.user).exists(),
         "add_to_comparison_form": AddToComparisonForm(item=item),
@@ -398,9 +453,13 @@ def comparison_detail(request, pk):
     currency, book = display_currency_for(request.user), RateBook.load()
     # One query loads every item's full history (for the chart, arrows and "Cheapest").
     items = attach_summaries(_items_for(request.user).filter(comparison_groups=group).order_by("name"), book)
+    rows = comparisons.table_rows(items, currency, book)
+    field_definitions, map_points = comparisons.field_columns(rows) if rows else ([], [])
     return render(request, "tracker/comparison_detail.html", {
         "group": group,
-        "rows": comparisons.table_rows(items, currency, book),
+        "rows": rows,
+        "field_definitions": field_definitions,
+        "map_data": {"points": map_points},
         "mixed_periods": comparisons.mixed_periods(items),
         "chart_data": comparisons.chart_data(items, currency, book),
         "rate_book": book,
@@ -419,6 +478,62 @@ def item_add_to_comparison(request, pk):
     else:
         messages.error(request, "Choose one of your comparisons that doesn't include this item yet.")
     return redirect("item-detail", pk=item.pk)
+
+
+def _staff_only(request):
+    """Categories are shared by the whole household, so only staff may change them."""
+    if not request.user.is_staff:
+        raise Http404
+
+
+@login_required
+def category_list(request):
+    _staff_only(request)
+    categories = Category.objects.annotate(item_count=Count("items"))
+    return render(request, "tracker/category_list.html", {
+        "categories": [(category, custom_fields.definitions(category)) for category in categories],
+    })
+
+
+def _category_form_page(request, category=None):
+    form = CategoryForm(request.POST or None, instance=category)
+    fields = field_definition_formset(request.POST or None, category)
+    if request.method == "POST" and form.is_valid() and fields.is_valid():
+        saved = form.save(commit=False)
+        saved.field_definitions = fields.definitions
+        saved.save()
+        messages.success(request, f"Category “{saved.name}” saved.")
+        return redirect("category-list")
+    return render(request, "tracker/category_form.html", {
+        "form": form, "fields": fields, "category": category,
+        "type_choices": custom_fields.TYPE_CHOICES,
+    })
+
+
+@login_required
+def category_create(request):
+    _staff_only(request)
+    return _category_form_page(request)
+
+
+@login_required
+def category_update(request, pk):
+    _staff_only(request)
+    return _category_form_page(request, get_object_or_404(Category, pk=pk))
+
+
+@login_required
+def category_delete(request, pk):
+    """Only unused categories can be deleted (items keep their category). GET asks first."""
+    _staff_only(request)
+    category = get_object_or_404(Category, pk=pk)
+    item_count = category.items.count()  # every household member's items, archived included
+    if request.method == "POST" and not item_count:
+        name = category.name
+        category.delete()
+        messages.success(request, f"Category “{name}” deleted.")
+        return redirect("category-list")
+    return render(request, "tracker/category_confirm_delete.html", {"category": category, "item_count": item_count})
 
 
 @login_required

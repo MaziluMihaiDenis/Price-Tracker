@@ -1,0 +1,18 @@
+{# A Location field: map + address search (location-picker.js), with plain inputs that work without the map. #}
+<fieldset class="location-input mb-3" data-location-input>
+  <legend class="form-label">{{ definition.label }}</legend>
+  <div class="input-group input-group-sm mb-2">
+    <input type="search" class="form-control" data-location-query placeholder="Search an address, e.g. Strada Gheorghe Ranetti, București" aria-label="Search an address for {{ definition.label }}">
+    <button type="button" class="btn btn-outline-secondary" data-location-search>Search</button>
+  </div>
+  <p class="form-text location-status" data-location-status role="status" aria-live="polite"></p>
+  <ul class="location-results list-unstyled" data-location-results hidden></ul>
+  <div class="location-map" data-location-map aria-hidden="true" hidden></div>
+  <p class="form-text map-note" data-location-note>Click the map to place the pin, then drag it to adjust. You can also type the coordinates.</p>
+  <div class="row g-2">
+    <div class="col-sm-6"><label class="form-label small" for="{{ address.id_for_label }}">Address</label>{{ address }}{% for error in address.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}</div>
+    <div class="col-6 col-sm-3"><label class="form-label small" for="{{ lat.id_for_label }}">Latitude</label>{{ lat }}{% for error in lat.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}</div>
+    <div class="col-6 col-sm-3"><label class="form-label small" for="{{ lon.id_for_label }}">Longitude</label>{{ lon }}{% for error in lon.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}</div>
+  </div>
+  <button type="button" class="btn btn-sm btn-link px-0" data-location-clear>Clear location</button>
+</fieldset>

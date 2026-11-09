@@ -785,3 +785,259 @@ class ArchiveAndDeleteTests(ViewTestCase):
         Item.objects.filter(pk=pk).update(archived_at=timezone.now())
         self.assertEqual(self.client.post(reverse("item-delete", args=[pk])).status_code, 404)
         self.assertTrue(Item.objects.filter(pk=pk).exists())
+
+
+class CategoryPageTests(ViewTestCase):
+    """Milestone 3b: the staff-only Categories pages."""
+
+    def setUp(self):
+        super().setUp()
+        get_user_model().objects.filter(pk=self.user.pk).update(is_staff=True)
+
+    def rows(self, *rows, initial=0):
+        """Formset data: each row is a dict of label/type/unit/choices/key/ORDER/DELETE."""
+        data = {"fields-TOTAL_FORMS": str(len(rows)), "fields-INITIAL_FORMS": str(initial),
+                "fields-MIN_NUM_FORMS": "0", "fields-MAX_NUM_FORMS": "13"}
+        for index, row in enumerate(rows):
+            row = {"type": "text", **row}
+            for name, value in row.items():
+                if value is not None:
+                    data[f"fields-{index}-{name}"] = value
+        return data
+
+    def create(self, name, *rows, period="one_time"):
+        return self.client.post(reverse("category-create"),
+                                {"name": name, "default_period": period, **self.rows(*rows)})
+
+    def test_staff_create_a_category_with_fields(self):
+        """Acceptance criterion 1."""
+        response = self.create("Fuel", {"label": "Litres", "type": "number", "unit": "l", "ORDER": "1"},
+                               {"label": "Station", "type": "choice", "choices": "Petrom, OMV", "ORDER": "2"})
+        self.assertRedirects(response, reverse("category-list"))
+        fuel = Category.objects.get(name="Fuel")
+        self.assertEqual(fuel.field_definitions, [
+            {"key": "litres", "label": "Litres", "type": "number", "unit": "l"},
+            {"key": "station", "label": "Station", "type": "choice", "choices": ["Petrom", "OMV"]}])
+        page = self.client.get(reverse("item-create"))
+        self.assertContains(page, "Litres (l)")
+
+    def test_non_staff_get_page_not_found_and_no_link(self):
+        """Acceptance criterion 2."""
+        self.client.force_login(self.other)
+        rent = Category.objects.get(name="Rent")
+        for url in (reverse("category-list"), reverse("category-create"),
+                    reverse("category-update", args=[rent.pk]), reverse("category-delete", args=[rent.pk])):
+            self.assertEqual(self.client.get(url).status_code, 404)
+        self.assertEqual(self.client.post(reverse("category-delete", args=[rent.pk])).status_code, 404)
+        self.assertNotContains(self.client.get(reverse("dashboard")), reverse("category-list"))
+        self.assertContains(self.client.get(reverse("item-create")), "Rent")  # still usable
+
+    def test_staff_see_the_sidebar_link(self):
+        self.assertContains(self.client.get(reverse("dashboard")), reverse("category-list"))
+
+    def test_rename_keeps_key_and_type_is_locked(self):
+        """Acceptance criterion 7."""
+        rent = Category.objects.get(name="Rent")
+        response = self.client.post(reverse("category-update", args=[rent.pk]), {
+            "name": "Rent", "default_period": "monthly",
+            **self.rows({"key": "area", "label": "Surface", "type": "text", "unit": "m²", "ORDER": "1"},
+                        {"key": "rooms", "label": "Rooms", "ORDER": "2"},
+                        {"key": "location", "label": "Location", "ORDER": "3"},
+                        {"key": "furnished", "label": "Furnished", "ORDER": "4", "DELETE": "on"}, initial=4)})
+        self.assertRedirects(response, reverse("category-list"))
+        rent.refresh_from_db()
+        self.assertEqual(rent.field_definitions, [
+            {"key": "area", "label": "Surface", "type": "number", "unit": "m²"},  # still a number
+            {"key": "rooms", "label": "Rooms", "type": "number"},
+            {"key": "location", "label": "Location", "type": "location"}])
+
+    def test_limits(self):
+        """Acceptance criterion 8."""
+        response = self.create("Two places", {"label": "Home", "type": "location"}, {"label": "Work", "type": "location"})
+        self.assertContains(response, "only one Location field")
+        response = self.create("Too many", *[{"label": f"Field {n}"} for n in range(11)])
+        self.assertContains(response, "at most 10 fields")
+        response = self.create("Twins", {"label": "Size"}, {"label": "size"})
+        self.assertContains(response, "Two fields are called")
+        response = self.create("Empty choice", {"label": "Heating", "type": "choice"})
+        self.assertContains(response, "enter its options")
+        self.assertFalse(Category.objects.filter(name__in=["Two places", "Too many", "Twins", "Empty choice"]).exists())
+
+    def test_readding_a_removed_field_brings_its_values_back(self):
+        """Acceptance criterion 7: a new field named like a removed one gets the same key."""
+        product = Category.objects.get(name="Product")
+        Category.objects.filter(pk=product.pk).update(field_definitions=[])
+        self.client.post(reverse("category-update", args=[product.pk]),
+                         {"name": "Product", "default_period": "one_time", **self.rows({"label": "Brand"})})
+        product.refresh_from_db()
+        self.assertEqual(product.field_definitions[0]["key"], "brand")
+
+    def test_duplicate_category_name(self):
+        response = self.create("rent")
+        self.assertContains(response, "A category with this name already exists.")
+
+    def test_delete_only_unused_categories(self):
+        """Acceptance criterion 12."""
+        Item.objects.create(owner=self.other, category=self.rent, name="Their flat")
+        response = self.client.get(reverse("category-delete", args=[self.rent.pk]))
+        self.assertContains(response, "Used by 1 item, so it can’t be deleted.")
+        self.client.post(reverse("category-delete", args=[self.rent.pk]))
+        self.assertTrue(Category.objects.filter(pk=self.rent.pk).exists())
+        fuel = Category.objects.create(name="Fuel")
+        self.assertContains(self.client.get(reverse("category-delete", args=[fuel.pk])), "No items use this category.")
+        self.assertTrue(Category.objects.filter(pk=fuel.pk).exists())  # GET deletes nothing
+        response = self.client.post(reverse("category-delete", args=[fuel.pk]))
+        self.assertRedirects(response, reverse("category-list"))
+        self.assertFalse(Category.objects.filter(pk=fuel.pk).exists())
+
+
+class CustomFieldValueTests(ViewTestCase):
+    """Milestone 3b: custom values in the item forms, on the item page and in comparisons."""
+
+    def manual_post(self, category, custom=None, **fields):
+        data = {"name": "Studio", "category": category.pk, "period": "monthly", "description": "", "url": "",
+                "price-amount": "2500", "price-currency": "RON", "price-recorded_at": "2026-11-05T12:00", "price-note": ""}
+        data.update(fields)
+        for name, value in (custom or {}).items():
+            data[f"cf{category.pk}-{name}"] = value
+        return self.client.post(reverse("item-create"), data)
+
+    def test_create_with_values_and_show_them(self):
+        """Acceptance criteria 4, 9 and 10."""
+        response = self.manual_post(self.rent, {"area": "32", "furnished": "true", "location__lat": "44.44264",
+                                                "location__lon": "26.053036", "location__address": "Strada Gheorghe Ranetti"})
+        item = Item.objects.get(name="Studio")
+        self.assertRedirects(response, reverse("item-detail", args=[item.pk]))
+        self.assertEqual(item.custom_values, {"area": "32", "furnished": True, "location": {
+            "lat": 44.44264, "lon": 26.053036, "address": "Strada Gheorghe Ranetti"}})
+        page = self.client.get(reverse("item-detail", args=[item.pk]))
+        self.assertContains(page, "<dt>Area</dt><dd>32 m²</dd>")
+        self.assertContains(page, "<dt>Furnished</dt><dd>Yes</dd>")
+        self.assertContains(page, "Strada Gheorghe Ranetti")
+        self.assertContains(page, "https://www.openstreetmap.org/?mlat=44.442640&amp;mlon=26.053036")
+        self.assertContains(page, 'data-static-map="item-map-data"')
+        self.assertContains(page, "leaflet.js")
+        self.assertContains(page, "44.44264, 26.05304")  # also as text, for when the map can't load
+
+    def test_invalid_values_save_nothing(self):
+        """Acceptance criteria 4, 5 and 9."""
+        for custom in ({"area": "abc"}, {"location__lat": "200", "location__lon": "26"}):
+            response = self.manual_post(self.rent, custom)
+            self.assertEqual(response.status_code, 200)
+        self.assertFalse(Item.objects.filter(name="Studio").exists())
+        Category.objects.filter(pk=self.rent.pk).update(field_definitions=[
+            {"key": "heating", "label": "Heating", "type": "choice", "choices": ["central", "own boiler"]}])
+        self.manual_post(self.rent, {"heating": "gas"})  # a tampered option
+        self.assertFalse(Item.objects.filter(name="Studio").exists())
+
+    def test_only_the_chosen_categorys_values_are_saved(self):
+        """Acceptance criterion 6: typed into Rent, then switched to Product."""
+        data = {f"cf{self.rent.pk}-area": "32", f"cf{self.product.pk}-brand": "CeraVe"}
+        self.manual_post(self.product, None, **data)
+        self.assertEqual(Item.objects.get(name="Studio").custom_values, {"brand": "CeraVe"})
+
+    def test_an_error_in_another_categorys_block_is_ignored(self):
+        self.manual_post(self.product, None, **{f"cf{self.rent.pk}-area": "abc"})
+        self.assertTrue(Item.objects.filter(name="Studio").exists())
+
+    def test_editing_keeps_other_and_removed_values(self):
+        """Acceptance criteria 6 and 7."""
+        item = Item.objects.create(owner=self.user, category=self.rent, name="Flat", period="monthly",
+                                   custom_values={"area": "32", "old_field": "kept", "brand": "Old brand"})
+        response = self.client.post(reverse("item-update", args=[item.pk]), {
+            "name": "Flat", "category": self.rent.pk, "period": "monthly", "description": "", "url": "",
+            f"cf{self.rent.pk}-area": "34", f"cf{self.rent.pk}-rooms": ""})
+        self.assertRedirects(response, reverse("item-detail", args=[item.pk]))
+        item.refresh_from_db()
+        self.assertEqual(item.custom_values, {"area": "34", "old_field": "kept", "brand": "Old brand"})
+        self.assertNotContains(self.client.get(reverse("item-detail", args=[item.pk])), "kept")
+
+    def test_edit_form_shows_stored_values(self):
+        item = Item.objects.create(owner=self.user, category=self.rent, name="Flat",
+                                   custom_values={"area": "32", "location": {"lat": 44.4, "lon": 26.0, "address": "Militari"}})
+        page = self.client.get(reverse("item-update", args=[item.pk]))
+        self.assertContains(page, f'name="cf{self.rent.pk}-area" value="32"')
+        self.assertContains(page, f'name="cf{self.rent.pk}-location__address" value="Militari"')
+        self.assertContains(page, "location-picker.js")
+
+    def test_add_by_link_saves_custom_values(self):
+        self.client.post(reverse("item-add-link"), {"step": "preview", "url": STORIA_URL})
+        response = self.client.post(reverse("item-add-link"), {
+            "step": "save", "name": "Studio near metro", "category": self.rent.pk, "period": "monthly",
+            "description": "", f"cf{self.rent.pk}-rooms": "1"})
+        item = Item.objects.get(name="Studio near metro")
+        self.assertRedirects(response, reverse("item-detail", args=[item.pk]), fetch_redirect_response=False)
+        self.assertEqual(item.custom_values, {"rooms": "1"})
+
+    def test_items_without_values_are_unchanged(self):
+        """Acceptance criterion 13."""
+        item = Item.objects.create(owner=self.user, category=self.rent, name="Old flat")
+        page = self.client.get(reverse("item-detail", args=[item.pk]))
+        self.assertEqual(page.status_code, 200)
+        self.assertNotContains(page, "item-map")
+        self.assertNotContains(page, "leaflet.js")
+
+    def test_comparison_columns_and_numbered_map(self):
+        """Acceptance criterion 11."""
+        located = Item.objects.create(owner=self.user, category=self.rent, name="A flat", custom_values={
+            "area": "38", "location": {"lat": 44.44, "lon": 26.05, "address": "Militari"}})
+        plain = Item.objects.create(owner=self.user, category=self.rent, name="B flat", custom_values={"rooms": "2"})
+        group = ComparisonGroup.objects.create(owner=self.user, name="Flats")
+        group.items.set([located, plain])
+        response = self.client.get(reverse("comparison-detail", args=[group.pk]))
+        self.assertContains(response, '<th>Area <small class="text-lowercase">(m²)</small></th>')
+        self.assertContains(response, "<th>Location</th>")
+        self.assertContains(response, '<td class="field-cell">38 m²</td>')
+        self.assertContains(response, '<span class="pin-badge" aria-label="Pin 1 on the map">1</span>Militari')
+        points = response.context["map_data"]["points"]
+        self.assertEqual([(p["number"], p["name"]) for p in points], [(1, "A flat")])
+        self.assertContains(response, "location-map.js")
+
+    def test_mixed_category_group_has_no_columns_or_map(self):
+        """Acceptance criterion 11."""
+        flat = Item.objects.create(owner=self.user, category=self.rent, name="Flat",
+                                   custom_values={"location": {"lat": 44.4, "lon": 26.0, "address": "X"}})
+        gel = Item.objects.create(owner=self.user, category=self.product, name="Gel")
+        group = ComparisonGroup.objects.create(owner=self.user, name="Mixed")
+        group.items.set([flat, gel])
+        response = self.client.get(reverse("comparison-detail", args=[group.pk]))
+        self.assertEqual((response.context["field_definitions"], response.context["map_data"]["points"]), ([], []))
+        self.assertNotContains(response, "<th>Location</th>")
+        self.assertNotContains(response, "comparison-map")
+
+
+class CustomFieldReviewFixTests(ViewTestCase):
+    """Milestone 3b review: values of another shape, and an unusual category number."""
+
+    def test_field_re_added_with_another_type_does_not_crash(self):
+        old_location = {"lat": 44.4, "lon": 26.0, "address": "Militari"}
+        item = Item.objects.create(owner=self.user, category=self.rent, name="Flat",
+                                   custom_values={"location": old_location, "area": "32"})
+        Category.objects.filter(pk=self.rent.pk).update(field_definitions=[
+            {"key": "area", "label": "Area", "type": "number", "unit": "m²"},
+            {"key": "location", "label": "Location", "type": "yes_no"}])
+        page = self.client.get(reverse("item-detail", args=[item.pk]))
+        self.assertContains(page, "<dt>Area</dt><dd>32 m²</dd>")
+        self.assertNotContains(page, "Militari")
+        self.assertEqual(self.client.get(reverse("item-update", args=[item.pk])).status_code, 200)
+        group = ComparisonGroup.objects.create(owner=self.user, name="Flats")
+        group.items.set([item])
+        comparison = self.client.get(reverse("comparison-detail", args=[group.pk]))
+        self.assertNotContains(comparison, "Militari")  # the old location never leaks as raw data
+        # Saving the form (the Yes/No left at "—") keeps the old location stored.
+        self.client.post(reverse("item-update", args=[item.pk]), {
+            "name": "Flat", "category": self.rent.pk, "period": "monthly", "description": "", "url": "",
+            f"cf{self.rent.pk}-area": "32", f"cf{self.rent.pk}-location": "unknown"})
+        item.refresh_from_db()
+        self.assertEqual(item.custom_values, {"location": old_location, "area": "32"})
+
+    def test_category_number_with_a_leading_zero_saves_its_values(self):
+        """Review info 1: "04" is category 4 for the form, so block 4 is used too."""
+        Item.objects.create(owner=self.user, category=self.rent, name="Flat")
+        item = Item.objects.get(name="Flat")
+        response = self.client.post(reverse("item-update", args=[item.pk]), {
+            "name": "Flat", "category": f"0{self.rent.pk}", "period": "monthly", "description": "", "url": "",
+            f"cf{self.rent.pk}-area": "40"})
+        self.assertRedirects(response, reverse("item-detail", args=[item.pk]))
+        item.refresh_from_db()
+        self.assertEqual(item.custom_values, {"area": "40"})

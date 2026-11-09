@@ -1,0 +1,10 @@
+{# One block of extra fields per category; custom-fields.js shows the chosen category's block. #}
+{% if custom_blocks %}<div class="form-section custom-fields" data-custom-fields>
+  <div class="form-section-title"><span>✚</span><div><h2>Details</h2><p>Optional details for this category, used on the item page and in comparisons.</p></div></div>
+  <p class="form-text custom-fields-hint" data-custom-fields-hint{% if selected_category %} hidden{% endif %}>Choose a category to see its details.</p>
+  {% for block in custom_blocks %}<div class="custom-field-block" data-category="{{ block.category.pk }}"{% if block.category.pk|stringformat:'s' != selected_category %} hidden{% endif %}>
+    {% for error in block.non_field_errors %}<div class="alert alert-danger">{{ error }}</div>{% endfor %}
+    {% for row in block.layout %}{% if row.location %}{% include 'tracker/_location_input.html' with definition=row.definition lat=row.location.0 lon=row.location.1 address=row.location.2 %}{% else %}{% with field=row.field %}<div class="mb-3"><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% for error in field.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}</div>{% endwith %}{% endif %}
+    {% empty %}<p class="form-text mb-0">“{{ block.category.name }}” has no extra details.</p>{% endfor %}
+  </div>{% endfor %}
+</div>{% endif %}

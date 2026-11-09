@@ -26,6 +26,7 @@
       <div class="sidebar-label sidebar-label-lower">Manage</div>
       <nav class="nav flex-column app-nav">
         <a class="nav-link {% if request.resolver_match.url_name == 'settings' %}active{% endif %}" href="{% url 'settings' %}"><span class="nav-glyph">⚙</span> Preferences</a>
+        {% if request.user.is_staff %}<a class="nav-link {% if request.resolver_match.url_name|slice:':8' == 'category' %}active{% endif %}" href="{% url 'category-list' %}"><span class="nav-glyph">▦</span> Categories</a>{% endif %}
       </nav>
       <div class="sidebar-spacer"></div>
       <div class="sidebar-tip"><span class="tip-icon">✦</span><strong>Small changes add up.</strong><p>Track the things you care about, all in one place.</p></div>
@@ -40,7 +41,7 @@
       </header>
       <div class="offcanvas offcanvas-start mobile-offcanvas" tabindex="-1" id="mobileNav" aria-labelledby="mobileNavLabel">
         <div class="offcanvas-header"><a class="brand-lockup" id="mobileNavLabel" href="{% url 'dashboard' %}"><span class="brand-mark">P</span><strong>price<span class="brand-accent">track</span></strong></a><button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button></div>
-        <div class="offcanvas-body"><nav class="nav flex-column app-nav"><a class="nav-link" href="{% url 'dashboard' %}">⌂ &nbsp; Overview</a><a class="nav-link" href="{% url 'item-list' %}">▤ &nbsp; Tracked items</a><a class="nav-link" href="{% url 'comparison-list' %}">◫ &nbsp; Comparisons</a><a class="nav-link" href="{% url 'settings' %}">⚙ &nbsp; Preferences</a></nav><form method="post" action="{% url 'logout' %}" class="mt-4">{% csrf_token %}<button class="btn btn-outline-secondary w-100" type="submit">Sign out</button></form></div>
+        <div class="offcanvas-body"><nav class="nav flex-column app-nav"><a class="nav-link" href="{% url 'dashboard' %}">⌂ &nbsp; Overview</a><a class="nav-link" href="{% url 'item-list' %}">▤ &nbsp; Tracked items</a><a class="nav-link" href="{% url 'comparison-list' %}">◫ &nbsp; Comparisons</a><a class="nav-link" href="{% url 'settings' %}">⚙ &nbsp; Preferences</a>{% if request.user.is_staff %}<a class="nav-link" href="{% url 'category-list' %}"><span class="nav-glyph">▦</span> Categories</a>{% endif %}</nav><form method="post" action="{% url 'logout' %}" class="mt-4">{% csrf_token %}<button class="btn btn-outline-secondary w-100" type="submit">Sign out</button></form></div>
       </div>
       <main class="page-content">
         {% if messages %}<div class="messages" aria-live="polite">{% for message in messages %}<div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="status">{{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Dismiss"></button></div>{% endfor %}</div>{% endif %}

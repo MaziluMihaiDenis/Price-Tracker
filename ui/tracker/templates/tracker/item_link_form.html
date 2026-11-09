@@ -1,5 +1,8 @@
 {% extends 'tracker/base.html' %}
+{% load static %}
 {% block title %}Add by link · Price Tracker{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'vendor/leaflet/leaflet.css' %}"><script defer src="{% static 'vendor/leaflet/leaflet.js' %}"></script>{% endblock %}
+{% block extra_js %}<script defer src="{% static 'tracker/js/custom-fields.js' %}"></script><script defer src="{% static 'tracker/js/location-picker.js' %}"></script>{% endblock %}
 {% block content %}
 <section class="page-heading"><div><div class="eyebrow"><a href="{% url 'item-list' %}">TRACKED ITEMS</a> / ADD BY LINK</div><h1>Track a price from a link</h1><p>{% if preview %}Check what we found, then choose how to file it.{% else %}Paste a product or listing link and we’ll read its current price.{% endif %}</p></div><a class="text-link" href="{% url 'item-list' %}">← Back to items</a></section>
 {% include 'tracker/_add_method_switch.html' with mode='link' %}
@@ -12,6 +15,7 @@
       {% if preview.note %}<div class="form-text">{{ preview.note }}</div>{% endif %}
     </div>
     <div class="form-section"><div class="form-section-title"><span>02</span><div><h2>Item details</h2><p>The name comes from the page; change it if you like.</p></div></div>{% include 'tracker/_form_fields.html' with form=details_form %}</div>
+    {% include 'tracker/_custom_fields.html' %}
     <div class="form-actions"><a class="btn btn-light" href="{% url 'item-add-link' %}">Start over</a><button class="btn btn-primary" type="submit">Save and track <span aria-hidden="true">→</span></button></div>
   </form>
 {% else %}

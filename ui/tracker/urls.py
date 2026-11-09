@@ -20,5 +20,9 @@ urlpatterns = [
     path("comparisons/<int:pk>/", views.comparison_detail, name="comparison-detail"),
     path("comparisons/<int:pk>/edit/", views.comparison_update, name="comparison-update"),
     path("comparisons/<int:pk>/delete/", views.comparison_delete, name="comparison-delete"),
+    path("categories/", views.category_list, name="category-list"),
+    path("categories/add/", views.category_create, name="category-create"),
+    path("categories/<int:pk>/edit/", views.category_update, name="category-update"),
+    path("categories/<int:pk>/delete/", views.category_delete, name="category-delete"),
     path("settings/", views.settings_view, name="settings"),
 ]

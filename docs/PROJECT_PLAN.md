@@ -315,7 +315,7 @@ The order is "riskiest first, then foundations": a spike first, so we find out e
 |---|---|---|---|
 | 1 | Scraping spike | ✅ Done | eMAG + Storia chosen. [Report](spikes/scraping-results.md), [plan](features/milestone-1-scraping-spike.md) |
 | 2 | Project setup | ✅ Done | Django app in `ui/`, logins, favourite-currency setting (commit `e2097aa`) |
-| 3 | Core data and manual entry | 🟡 Split into M3a / M3b / M3c | **M3a archive and delete: ✅ built, not committed yet** ([plan](features/milestone-3a-archive-delete.md)). **M3b ⏭️ next:** custom fields (Categories page, starter fields, text/number/yes-no/choice, Location field with a Leaflet + OpenStreetMap map). **M3c:** fill item details and location from Storia/eMAG pages |
+| 3 | Core data and manual entry | 🟡 Split into M3a / M3b / M3c | **M3a archive and delete: ✅ done** (commit `dee9249`, [plan](features/milestone-3a-archive-delete.md)). **M3b custom fields and Location map: ✅ built, not committed yet** ([plan](features/milestone-3b-custom-fields.md)). **M3c ⏭️ next:** fill item details and location from Storia/eMAG pages |
 | 4 | Currencies | ✅ Done | BNR rates imported and updated daily; every price, chart and message shown in each person's currency (commit `7301ce8`). [Plan](features/milestone-4-currencies.md) |
 | 5 | History and indicators | ✅ Done | One-currency chart, "↓ 7.7%" arrows, "Lowest ever" badge, lowest/highest on the item page, dashboard "Price changes" panel. (commit `44f3d06`). [Plan](features/milestone-5-indicators.md) |
 | 6 | Automatic tracking | ✅ Done | eMAG + Storia adapters, "Add by link" with preview, "Check now", statuses (commit `a6d08e2`) |
@@ -323,7 +323,7 @@ The order is "riskiest first, then foundations": a spike first, so we find out e
 | 8 | Comparison groups | ✅ Done | One chart per group in your currency, mixed-period warning with a "Per month" column, "Cheapest" / "+X% vs cheapest", arrows, edit and delete, "Add to comparison" on the item page. (commit `20fe865`). [Plan](features/milestone-8-comparisons.md) |
 | 9 | Household rollout | ⬜ Not started | Waitress, backup script, instructions for family members |
 
-**Order from here:** M3b (custom fields and map) → M3c (auto-fill from websites) → M9. M3a (archive and delete), M4, M5 and M8 are done.
+**Order from here:** M3c (auto-fill from websites) → M9. M3a, M3b, M4, M5 and M8 are done.
 
 | # | Milestone | Depends on | Main tasks | Acceptance criteria (how we know it's done) |
 |---|---|---|---|---|
@@ -383,7 +383,7 @@ The order is "riskiest first, then foundations": a spike first, so we find out e
 *Updated 2026-11-06.*
 
 1. Register the daily task once: `powershell -ExecutionPolicy Bypass -File scripts\register_daily_check.ps1`.
-2. Plan and build **milestone 3b (custom fields with a Location map)** with `/plan-feature`, then `/implement-feature`; then M3c.
+2. Plan and build **milestone 3c (fill item details and location from websites)** with `/plan-feature`, then `/implement-feature`.
 3. Answer open questions 2 and 3 above.
 4. Then follow the order in "Roadmap status" (section 9).
 
