@@ -13,7 +13,7 @@ from django.views.decorators.http import require_POST
 from tracker.adapters import adapter_for
 from tracker.adapters.base import PageResult
 from tracker.checks import can_be_checked, check_item, read_page, seconds_until_next_check, start_tracking
-from tracker import comparisons, custom_fields
+from tracker import autofill, comparisons, custom_fields
 from tracker.forms import (AddToComparisonForm, AutomaticItemForm, CategoryForm, ComparisonGroupForm, ItemForm,
                            LinkForm, PricePointForm, ProfileForm, field_definition_formset)
 from tracker.money import RateBook, display_currency_for, display_price
@@ -24,6 +24,8 @@ from tracker.models import Category, CheckAttempt, CheckRun, ComparisonGroup, It
 # The price read during "Add by link" is kept in the session between preview and save,
 # so the saved price is the one the app read, not one sent back by the browser.
 LINK_PREVIEW_KEY = "link_preview"
+# "Fill from website" keeps the details it read here until the user confirms, for the same reason.
+FILL_PREVIEW_KEY = "fill_preview"
 # The dashboard's "Price changes" panel: changes from the last 7 days, biggest first.
 PRICE_CHANGES_WINDOW = timedelta(days=7)
 PRICE_CHANGES_SHOWN = 6
@@ -136,7 +138,7 @@ def item_list(request):
     })
 
 
-def _custom_blocks(request, details_form, item=None):
+def _custom_blocks(request, details_form, item=None, site_details=None):
     """One custom-fields form per category, for the item forms.
 
     The page shows only the chosen category's block. Only that block is bound to the posted
@@ -145,11 +147,14 @@ def _custom_blocks(request, details_form, item=None):
     chosen = str(details_form["category"].value() or "").strip()
     if chosen.isdigit():
         chosen = str(int(chosen))  # "04" is category 4 for the form, so pick block 4 too
-    values = item.custom_values if item else {}
     data = request.POST if request.method == "POST" else None
-    return chosen, [custom_fields.CustomValuesForm(data if str(category.pk) == chosen else None,
-                                                   category=category, values=values)
-                    for category in Category.objects.all()]
+    blocks = []
+    for category in Category.objects.all():
+        # Add by link: each block starts with what the website said for that category's fields.
+        values = autofill.match(site_details, category) if site_details else (item.custom_values if item else {})
+        blocks.append(custom_fields.CustomValuesForm(data if str(category.pk) == chosen else None,
+                                                     category=category, values=values))
+    return chosen, blocks
 
 
 def _custom_values_or_none(details_form, blocks, stored=None):
@@ -209,7 +214,7 @@ def item_add_link(request):
 
     if step == "save" and preview:
         details_form = AutomaticItemForm(request.POST)
-        chosen, blocks = _custom_blocks(request, details_form)
+        chosen, blocks = _custom_blocks(request, details_form, site_details=preview.get("details"))
         values = _custom_values_or_none(details_form, blocks) if details_form.is_valid() else None
         if values is not None:
             existing = Item.objects.filter(owner=request.user, url=preview["url"]).first()
@@ -248,10 +253,11 @@ def item_add_link(request):
                 preview = {
                     "url": url, "site": adapter.name, "title": page.title, "price": str(page.price),
                     "currency": page.currency, "available": page.available, "note": result.message,
+                    "details": page.details,
                 }
                 request.session[LINK_PREVIEW_KEY] = preview
                 details_form = AutomaticItemForm(initial={"name": page.title[:180], "period": adapter.default_period})
-                chosen, blocks = _custom_blocks(request, details_form)
+                chosen, blocks = _custom_blocks(request, details_form, site_details=page.details)
                 return render(request, "tracker/item_link_form.html", {
                     "preview": preview, "details_form": details_form, "custom_blocks": blocks,
                     "selected_category": chosen})
@@ -265,13 +271,9 @@ def item_add_link(request):
 def item_check(request, pk):
     """The "Check now" button: read today's price for one automatic item."""
     item = get_object_or_404(Item, pk=pk, owner=request.user)
-    if not can_be_checked(item):
-        messages.info(request, "This item isn't checked automatically.")
-        return redirect("item-detail", pk=item.pk)
-    wait = seconds_until_next_check(item)
-    if wait:
-        minutes = math.ceil(wait / 60)
-        messages.info(request, f"Checked recently. You can check again in {minutes} minute{'s' if minutes != 1 else ''}.")
+    refusal = _check_now_refusal(item)
+    if refusal:
+        messages.info(request, refusal)
         return redirect("item-detail", pk=item.pk)
     result = check_item(item)
     if result.outcome == CheckAttempt.Outcome.OK:
@@ -280,6 +282,90 @@ def item_check(request, pk):
         messages.success(request, f"{result.message} (≈ {converted} in your currency)" if converted else result.message)
     else:
         messages.warning(request, f"Couldn't check the price: {result.message}")
+    return redirect("item-detail", pk=item.pk)
+
+
+def _check_now_refusal(item):
+    """Why Check now (and Fill from website) can't run for this item right now, or ""."""
+    if not can_be_checked(item):
+        return "This item isn't checked automatically."
+    wait = seconds_until_next_check(item)
+    if wait:
+        minutes = math.ceil(wait / 60)
+        return f"Checked recently. You can check again in {minutes} minute{'s' if minutes != 1 else ''}."
+    return ""
+
+
+@login_required
+def item_fill(request, pk):
+    """ "Fill from website": POST reads the page (like Check now), GET shows what it found."""
+    item = get_object_or_404(_items_for(request.user), pk=pk)
+    if request.method == "POST":
+        refusal = _check_now_refusal(item)
+        if refusal:
+            messages.info(request, refusal)
+            return redirect("item-detail", pk=item.pk)
+        result = check_item(item)  # records today's price, exactly like Check now
+        if result.outcome != CheckAttempt.Outcome.OK:
+            messages.warning(request, f"Couldn't read the page: {result.message}")
+            return redirect("item-detail", pk=item.pk)
+        request.session[FILL_PREVIEW_KEY] = {
+            "item": item.pk, "site": adapter_for(item.url).name,
+            "details": result.page.details, "price_message": result.message,
+        }
+        return redirect("item-fill", pk=item.pk)
+
+    preview = request.session.get(FILL_PREVIEW_KEY)
+    if not preview or preview.get("item") != item.pk:
+        return redirect("item-detail", pk=item.pk)
+    values, used = autofill.match_with_sources(preview["details"], item.category)
+    stored = item.custom_values or {}
+    rows = []
+    for definition in custom_fields.definitions(item.category):
+        if definition["key"] not in values:
+            continue
+        current = stored.get(definition["key"])
+        rows.append({
+            "definition": definition,
+            "current": custom_fields.display_value(definition, current),
+            "found": custom_fields.display_value(definition, values[definition["key"]]),
+            # Only fields with nothing stored: never replace your values, not even an older
+            # value of another type that's hidden since the field was re-added (M3b).
+            "fillable": current is None,
+            "hidden_value": current is not None and not custom_fields.fits(definition, current),
+        })
+    return render(request, "tracker/item_fill_preview.html", {
+        "item": item, "preview": preview, "rows": rows,
+        "unused": autofill.unused(preview["details"], used),
+    })
+
+
+@login_required
+@require_POST
+def item_fill_confirm(request, pk):
+    """Fill the ticked, still-empty fields with the values the server read (never the browser's)."""
+    item = get_object_or_404(_items_for(request.user), pk=pk)
+    preview = request.session.get(FILL_PREVIEW_KEY)
+    if not preview or preview.get("item") != item.pk:
+        messages.info(request, "Press “Fill from website” to read the page first.")
+        return redirect("item-detail", pk=item.pk)
+    chosen = set(request.POST.getlist("fields"))
+    values = autofill.match(preview["details"], item.category)
+    definitions = {d["key"]: d for d in custom_fields.definitions(item.category)}
+    stored = dict(item.custom_values or {})
+    filled = []
+    for key, value in values.items():
+        if key in chosen and stored.get(key) is None:
+            stored[key] = value
+            filled.append(definitions[key]["label"])
+    del request.session[FILL_PREVIEW_KEY]
+    if filled:
+        item.custom_values = stored
+        item.save(update_fields=["custom_values", "updated_at"])
+        names = filled[0] if len(filled) == 1 else f"{', '.join(filled[:-1])} and {filled[-1]}"
+        messages.success(request, f"Filled {names} from {preview['site']}.")
+    else:
+        messages.info(request, "Nothing was filled.")
     return redirect("item-detail", pk=item.pk)
 
 

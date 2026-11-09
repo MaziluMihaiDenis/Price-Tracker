@@ -53,6 +53,7 @@ class CheckResult:
     outcome: str
     message: str
     price_point: PricePoint | None = None
+    page: PageResult | None = None  # what was read, incl. details ("Fill from website")
 
 
 def http_get(url):
@@ -212,4 +213,4 @@ def check_item(item, now=None, run=None):
         item.status = Item.Status.ACTIVE
         item.last_error = ""
         _record(item, Outcome.OK, message, now, run)
-    return CheckResult(Outcome.OK, message, point)
+    return CheckResult(Outcome.OK, message, point, page)

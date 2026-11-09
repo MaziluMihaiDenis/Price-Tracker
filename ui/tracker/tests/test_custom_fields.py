@@ -45,12 +45,12 @@ class ValueFormTests(SimpleTestCase):
     def test_valid_values(self):
         """Acceptance criterion 4."""
         form = submit({"area": "32", "rooms": "1", "furnished": "true", "heating": "central", "notes": " Quiet ",
-                       "location__lat": "44.44264", "location__lon": "26.053036",
-                       "location__address": " Strada  Gheorghe Ranetti "})
+                       "location__lat": "44.43", "location__lon": "26.05",
+                       "location__address": " Strada  Exemplului "})
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.values(), {
             "area": "32", "rooms": "1", "furnished": True, "heating": "central", "notes": "Quiet",
-            "location": {"lat": 44.44264, "lon": 26.053036, "address": "Strada Gheorghe Ranetti"}})
+            "location": {"lat": 44.43, "lon": 26.05, "address": "Strada Exemplului"}})
 
     def test_everything_is_optional(self):
         form = submit({})

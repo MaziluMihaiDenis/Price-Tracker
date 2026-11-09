@@ -6,10 +6,13 @@ then price meta tags.
 """
 
 import json
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 
 from bs4 import BeautifulSoup
+
+logger = logging.getLogger("tracker.adapters")
 
 CURRENCY_ALIASES = {"RON": "RON", "LEI": "RON", "LEU": "RON", "EUR": "EUR", "€": "EUR", "EURO": "EUR"}
 
@@ -22,6 +25,10 @@ class PageResult:
     price: Decimal
     currency: str | None  # "RON", "EUR", or None when the page didn't say
     available: bool = True
+    # Extra details for custom fields (milestone 3c), e.g. {"area": "38", "rooms": "1",
+    # "location": {"lat": .., "lon": .., "address": ".."}, "specs": {"Tip produs": "Gel"}}.
+    # Plain text, numbers and dicts only, so it can be kept in the session.
+    details: dict = field(default_factory=dict)
 
 
 def normalize_currency(code):
@@ -68,7 +75,21 @@ class SiteAdapter:
         result = self._from_structured_data(soup) or self._from_meta_tags(soup)
         if result and not result.title:
             result.title = self._page_title(soup)
+        if result:
+            result.details = self._safe_details(soup)
         return result
+
+    def _safe_details(self, soup):
+        """The page's extra details. Never raises: a broken detail must not cost us the price."""
+        try:
+            return self._details(soup) or {}
+        except Exception:  # noqa: BLE001 - sites change their pages without notice
+            logger.warning("%s: couldn't read the page details", self.name, exc_info=True)
+            return {}
+
+    def _details(self, soup):
+        """Site adapters read their extra details here (see read_detail)."""
+        return {}
 
     def _from_structured_data(self, soup):
         for script in soup.find_all("script", type="application/ld+json"):
@@ -114,3 +135,23 @@ class SiteAdapter:
             if tag and tag.get("content"):
                 return tag["content"]
         return None
+
+
+def read_detail(details, name, reader):
+    """details[name] = reader(), skipping this one detail if it's missing or malformed."""
+    try:
+        value = reader()
+    except (KeyError, IndexError, TypeError, ValueError, AttributeError):
+        return
+    if value not in (None, "", {}, []):
+        details[name] = value
+
+
+def json_ld_nodes(soup):
+    """Every dict in the page's JSON-LD blocks (broken blocks are skipped)."""
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or "")
+        except json.JSONDecodeError:
+            continue
+        yield from _walk(data)

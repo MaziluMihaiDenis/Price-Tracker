@@ -71,3 +71,50 @@ class ExtractionTests(SimpleTestCase):
         for price in ('"0"', '"la cerere"'):
             html = f'<script type="application/ld+json">{{"name": "x", "offers": {{"price": {price}}}}}</script>'
             self.assertIsNone(StoriaAdapter().extract(html), price)
+
+
+class DetailTests(SimpleTestCase):
+    """Milestone 3c: the extra details read for custom fields."""
+
+    def test_storia_details(self):
+        """Acceptance criterion 1."""
+        details = StoriaAdapter().extract(fixture("storia_listing.html")).details
+        self.assertEqual(details, {
+            "area": "38", "rooms": "1", "year_built": "2017", "floor": "Ground floor", "heating": "Gas",
+            "location": {"lat": 44.43, "lon": 26.05,
+                         "address": "Strada Exemplului, Militari, Sectorul 6, Bucuresti"}})
+
+    def test_emag_details(self):
+        """Acceptance criterion 2 (the test page uses a made-up brand)."""
+        details = EmagAdapter().extract(fixture("emag_product.html")).details
+        self.assertEqual(details["brand"], "ExampleBrand")
+        self.assertEqual(details["specs"], {"Tip produs": "Gel de curatare", "Tipul de ten": "Uscat, Normal",
+                                            "Set": "Nu", "Cantitate": "1000 ml"})
+
+    def test_storia_codes_read_as_words(self):
+        from tracker.adapters.storia import FLOORS, HEATING, readable
+        self.assertEqual(readable("floor_3", FLOORS), "Floor 3")
+        self.assertEqual(readable("urban", HEATING), "District heating")
+        self.assertEqual(readable("own_boiler", HEATING), "Own boiler")
+
+    def test_missing_or_broken_details_keep_the_price(self):
+        """Acceptance criterion 9."""
+        page = fixture("storia_listing.html")
+        start = page.index('<script id="__NEXT_DATA__"')
+        without = page[:start] + page[page.index("</script>", start) + len("</script>"):]
+        broken = page.replace('"coordinates": {"latitude": 44.43', '"coordinates": {"latitude": "north"')
+        garbage = page.replace('{"props"', '{"props" oops', 1)
+        result = StoriaAdapter().extract(without)
+        self.assertEqual((result.price, result.details), (Decimal("399"), {}))
+        with self.assertLogs("tracker.adapters", level="WARNING"):  # logged, not raised
+            result = StoriaAdapter().extract(garbage)
+        self.assertEqual((result.price, result.details), (Decimal("399"), {}))
+        result = StoriaAdapter().extract(broken)
+        self.assertEqual(result.price, Decimal("399"))
+        self.assertNotIn("location", result.details)  # only the broken detail is skipped
+        self.assertEqual(result.details["area"], "38")
+
+    def test_emag_page_without_specs(self):
+        page = fixture("emag_product.html")
+        html = page[:page.index('<div class="specifications-body">')] + "</body></html>"
+        self.assertEqual(EmagAdapter().extract(html).details, {"brand": "ExampleBrand"})

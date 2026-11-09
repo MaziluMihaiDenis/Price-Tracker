@@ -5,7 +5,7 @@ Definitions live in `Category.field_definitions` and values in `Item.custom_valu
     [{"key": "area", "label": "Area", "type": "number", "unit": "m²"},
      {"key": "location", "label": "Location", "type": "location"}]
     {"area": "32", "furnished": true,
-     "location": {"lat": 44.44264, "lon": 26.053036, "address": "Strada Gheorghe Ranetti"}}
+     "location": {"lat": 44.43, "lon": 26.05, "address": "Strada Exemplului"}}
 
 A field's key is made once from its first label and never changes, so renaming "Area" to
 "Surface" keeps every value. Removing a field only hides its values; they stay stored.

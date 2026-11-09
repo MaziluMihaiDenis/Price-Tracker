@@ -904,20 +904,20 @@ class CustomFieldValueTests(ViewTestCase):
 
     def test_create_with_values_and_show_them(self):
         """Acceptance criteria 4, 9 and 10."""
-        response = self.manual_post(self.rent, {"area": "32", "furnished": "true", "location__lat": "44.44264",
-                                                "location__lon": "26.053036", "location__address": "Strada Gheorghe Ranetti"})
+        response = self.manual_post(self.rent, {"area": "32", "furnished": "true", "location__lat": "44.43",
+                                                "location__lon": "26.05", "location__address": "Strada Exemplului"})
         item = Item.objects.get(name="Studio")
         self.assertRedirects(response, reverse("item-detail", args=[item.pk]))
         self.assertEqual(item.custom_values, {"area": "32", "furnished": True, "location": {
-            "lat": 44.44264, "lon": 26.053036, "address": "Strada Gheorghe Ranetti"}})
+            "lat": 44.43, "lon": 26.05, "address": "Strada Exemplului"}})
         page = self.client.get(reverse("item-detail", args=[item.pk]))
         self.assertContains(page, "<dt>Area</dt><dd>32 m²</dd>")
         self.assertContains(page, "<dt>Furnished</dt><dd>Yes</dd>")
-        self.assertContains(page, "Strada Gheorghe Ranetti")
-        self.assertContains(page, "https://www.openstreetmap.org/?mlat=44.442640&amp;mlon=26.053036")
+        self.assertContains(page, "Strada Exemplului")
+        self.assertContains(page, "https://www.openstreetmap.org/?mlat=44.430000&amp;mlon=26.050000")
         self.assertContains(page, 'data-static-map="item-map-data"')
         self.assertContains(page, "leaflet.js")
-        self.assertContains(page, "44.44264, 26.05304")  # also as text, for when the map can't load
+        self.assertContains(page, "44.43000, 26.05000")  # also as text, for when the map can't load
 
     def test_invalid_values_save_nothing(self):
         """Acceptance criteria 4, 5 and 9."""
@@ -1041,3 +1041,131 @@ class CustomFieldReviewFixTests(ViewTestCase):
         self.assertRedirects(response, reverse("item-detail", args=[item.pk]))
         item.refresh_from_db()
         self.assertEqual(item.custom_values, {"area": "40"})
+
+
+class AutofillViewTests(ViewTestCase):
+    """Milestone 3c: pre-fill in Add by link, and "Fill from website"."""
+
+    LOCATION = {"lat": 44.43, "lon": 26.05, "address": "Strada Exemplului, Militari, Sectorul 6, Bucuresti"}
+
+    def studio(self, **values):
+        return self.automatic_item(name="Studio", url=STORIA_URL, category=self.rent, period="monthly",
+                                   custom_values=values)
+
+    def test_add_by_link_prefills_the_details(self):
+        """Acceptance criterion 3."""
+        page = self.client.post(reverse("item-add-link"), {"step": "preview", "url": STORIA_URL})
+        prefix = f"cf{self.rent.pk}"
+        self.assertContains(page, f'name="{prefix}-area" value="38"')
+        self.assertContains(page, f'name="{prefix}-rooms" value="1"')
+        self.assertContains(page, f'name="{prefix}-floor" value="Ground floor"')
+        self.assertContains(page, f'name="{prefix}-heating" value="Gas"')
+        self.assertContains(page, f'name="{prefix}-location__lat" value="44.43"')
+        # Saving sends the (possibly edited) pre-filled values like any other form.
+        self.client.post(reverse("item-add-link"), {
+            "step": "save", "name": "Studio", "category": self.rent.pk, "period": "monthly", "description": "",
+            f"{prefix}-area": "38", f"{prefix}-rooms": "1", f"{prefix}-floor": "Ground floor",
+            f"{prefix}-location__lat": "44.43", f"{prefix}-location__lon": "26.05",
+            f"{prefix}-location__address": self.LOCATION["address"]})
+        item = Item.objects.get(name="Studio")
+        self.assertEqual(item.custom_values["area"], "38")
+        self.assertEqual(item.custom_values["location"], self.LOCATION)
+
+    def test_emag_specifications_prefill_a_matching_label(self):
+        """Acceptance criterion 4."""
+        Category.objects.filter(pk=self.product.pk).update(field_definitions=[
+            {"key": "brand", "label": "Brand", "type": "text"},
+            {"key": "tip_produs", "label": "Tip produs", "type": "text"}])
+        page = self.client.post(reverse("item-add-link"), {"step": "preview", "url": EMAG_URL})
+        self.assertContains(page, f'name="cf{self.product.pk}-tip_produs" value="Gel de curatare"')
+        self.assertContains(page, f'name="cf{self.product.pk}-brand" value="ExampleBrand"')
+
+    def test_fill_records_a_price_and_shows_a_preview(self):
+        """Acceptance criteria 5 and 6."""
+        item = self.studio(area="40")
+        response = self.client.post(reverse("item-fill", args=[item.pk]))
+        self.assertRedirects(response, reverse("item-fill", args=[item.pk]))
+        self.assertEqual(item.price_points.count(), 1)  # recorded like Check now
+        self.assertEqual(item.check_attempts.count(), 1)
+        page = self.client.get(reverse("item-fill", args=[item.pk]))
+        self.assertContains(page, "Price checked:")
+        self.assertContains(page, "kept, you already have a value")  # Area 40 is yours
+        self.assertNotContains(page, 'name="fields" value="area"')
+        self.assertContains(page, 'name="fields" value="rooms"')
+        self.assertContains(page, "Strada Exemplului")
+        # Within 10 minutes, a second press is refused like Check now.
+        response = self.client.post(reverse("item-fill", args=[item.pk]), follow=True)
+        self.assertContains(response, "Checked recently.")
+        self.assertEqual(self.internet.requested.count(STORIA_URL), 1)  # the page was read once (plus robots.txt)
+
+    def test_confirm_fills_only_ticked_empty_fields(self):
+        """Acceptance criteria 5 and 7."""
+        item = self.studio(area="40")
+        self.client.post(reverse("item-fill", args=[item.pk]))
+        response = self.client.post(reverse("item-fill-confirm", args=[item.pk]), {
+            "fields": ["area", "rooms", "location"],  # area is yours: never replaced
+            "rooms": "99", "location__lat": "0"})       # values from the browser are ignored
+        self.assertRedirects(response, reverse("item-detail", args=[item.pk]), fetch_redirect_response=False)
+        item.refresh_from_db()
+        self.assertEqual(item.custom_values, {"area": "40", "rooms": "1", "location": self.LOCATION})
+        self.assertContains(self.client.get(reverse("item-detail", args=[item.pk])),
+                            "Filled Rooms and Location from Storia.")
+        # The preview is used once.
+        response = self.client.post(reverse("item-fill-confirm", args=[item.pk]), {"fields": ["floor"]}, follow=True)
+        self.assertContains(response, "to read the page first")
+        item.refresh_from_db()
+        self.assertNotIn("floor", item.custom_values)
+
+    def test_fill_never_replaces_a_hidden_older_value(self):
+        """Review of M3, low 3: a value of another type (field re-added) is kept, and the preview says so."""
+        old = {"lat": 1.0, "lon": 2.0, "address": "Old place"}
+        Category.objects.filter(pk=self.rent.pk).update(field_definitions=[
+            {"key": "area", "label": "Area", "type": "text"},  # was a number, now text...
+            {"key": "rooms", "label": "Rooms", "type": "number"}])
+        item = self.studio(area=old)  # ...holding an old location-shaped value
+        self.client.post(reverse("item-fill", args=[item.pk]))
+        page = self.client.get(reverse("item-fill", args=[item.pk]))
+        self.assertContains(page, "kept: an older value of another type is stored")
+        self.assertNotContains(page, 'name="fields" value="area"')
+        self.client.post(reverse("item-fill-confirm", args=[item.pk]), {"fields": ["area", "rooms"]})
+        item.refresh_from_db()
+        self.assertEqual(item.custom_values, {"area": old, "rooms": "1"})
+
+    def test_nothing_matched(self):
+        Category.objects.filter(pk=self.rent.pk).update(field_definitions=[{"key": "notes", "label": "Notes", "type": "text"}])
+        item = self.studio()
+        self.client.post(reverse("item-fill", args=[item.pk]))
+        page = self.client.get(reverse("item-fill", args=[item.pk]))
+        self.assertContains(page, "The page didn’t have any details for this category’s fields.")
+        self.assertContains(page, "Area: 38")  # listed under "Not used"
+        self.assertEqual(item.price_points.count(), 1)
+
+    def test_failed_read_shows_no_preview(self):
+        self.internet.pages[STORIA_URL] = (503, "<html><title>Storia</title></html>")
+        item = self.studio()
+        response = self.client.post(reverse("item-fill", args=[item.pk]), follow=True)
+        self.assertContains(response, "Couldn&#x27;t read the page:")
+        self.assertRedirects(response, reverse("item-detail", args=[item.pk]))
+
+    def test_other_users_manual_items_and_get_requests(self):
+        """Acceptance criterion 10."""
+        item = self.studio()
+        manual = Item.objects.create(owner=self.user, category=self.rent, name="Manual flat")
+        self.assertNotContains(self.client.get(reverse("item-detail", args=[manual.pk])), "Fill from website")
+        self.assertContains(self.client.get(reverse("item-detail", args=[item.pk])), "Fill from website")
+        # Opening the preview address without reading first just goes back to the item.
+        self.assertRedirects(self.client.get(reverse("item-fill", args=[item.pk])), reverse("item-detail", args=[item.pk]))
+        self.assertEqual(self.client.get(reverse("item-fill-confirm", args=[item.pk])).status_code, 405)
+        self.client.force_login(self.other)
+        for name in ("item-fill", "item-fill-confirm"):
+            self.assertEqual(self.client.post(reverse(name, args=[item.pk])).status_code, 404)
+        self.assertEqual(self.internet.requested, [])
+
+    def test_a_preview_for_another_item_cant_be_used(self):
+        first, second = self.studio(), self.automatic_item(name="Other", url=STORIA_URL.replace("TEST", "OTHER"),
+                                                           category=self.rent)
+        self.internet.pages[second.url] = self.internet.pages[STORIA_URL]
+        self.client.post(reverse("item-fill", args=[first.pk]))
+        self.client.post(reverse("item-fill-confirm", args=[second.pk]), {"fields": ["rooms"]})
+        second.refresh_from_db()
+        self.assertEqual(second.custom_values, {})
