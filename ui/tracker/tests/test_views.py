@@ -99,6 +99,16 @@ class AddByLinkTests(ViewTestCase):
         self.assertContains(response, reverse("item-detail", args=[existing.pk]))
         self.assertEqual(self.internet.requested, [])
 
+    def test_archived_link_points_to_the_archived_item(self):
+        """Milestone 3a review: an archived item's link is recognised and the user is told how to restore it."""
+        archived = self.automatic_item(archived_at=timezone.make_aware(datetime(2026, 11, 7, 10, 0)))
+        response = self.client.post(self.url, {"step": "preview", "url": EMAG_URL})
+        self.assertContains(response, "You archived this item on 7 Nov 2026. Open it to restore it.")
+        self.assertNotContains(response, "You already track this link.")
+        self.assertContains(response, reverse("item-detail", args=[archived.pk]))
+        self.assertEqual(self.internet.requested, [])  # the page isn't read again
+        self.assertEqual(Item.objects.filter(owner=self.user).count(), 1)  # no second item
+
     def test_another_users_link_is_not_a_duplicate(self):
         self.automatic_item(owner=self.other)
         response = self.client.post(self.url, {"step": "preview", "url": EMAG_URL})
@@ -627,3 +637,151 @@ class ComparisonTests(ViewTestCase):
         for number in range(8):
             group.items.add(self.priced_item(f"Item {number}", ("100", "RON"), ("95", "RON")))
         self.assertEqual(queries(), with_two)
+
+
+class ArchiveAndDeleteTests(ViewTestCase):
+    """Milestone 3a: archive, restore, permanent delete, and deleting one price."""
+
+    def setUp(self):
+        super().setUp()
+        self.flat = Item.objects.create(owner=self.user, category=self.rent, name="Studio Militari",
+                                        period=Item.Period.MONTHLY)
+        now = timezone.now()
+        self.old_price = PricePoint.objects.create(item=self.flat, amount=Decimal("2600"), currency="RON",
+                                                   recorded_at=now - timedelta(days=2))
+        self.new_price = PricePoint.objects.create(item=self.flat, amount=Decimal("2500"), currency="RON",
+                                                   recorded_at=now - timedelta(days=1))
+        self.group = ComparisonGroup.objects.create(owner=self.user, name="Studios")
+        self.group.items.set([self.flat])
+
+    def archive(self, item=None):
+        return self.client.post(reverse("item-archive", args=[(item or self.flat).pk]))
+
+    def test_archived_item_is_hidden_everywhere(self):
+        """Acceptance criterion 1."""
+        self.archive()
+        self.flat.refresh_from_db()
+        self.assertTrue(self.flat.is_archived)
+        self.assertNotContains(self.client.get(reverse("item-list")), "Studio Militari")
+        dashboard = self.client.get(reverse("dashboard"))
+        self.assertNotContains(dashboard, "Studio Militari")
+        self.assertEqual((dashboard.context["item_count"], dashboard.context["price_changes"]), (0, []))
+        comparison = self.client.get(reverse("comparison-detail", args=[self.group.pk]))
+        self.assertNotContains(comparison, "Studio Militari")
+        self.assertContains(self.client.get(reverse("comparison-list")), "0 tracked items")
+        form = self.client.get(reverse("comparison-update", args=[self.group.pk]))
+        self.assertNotContains(form, "Studio Militari")
+        page = self.client.get(reverse("item-detail", args=[self.flat.pk]))
+        self.assertContains(page, "Archived on")
+        self.assertNotContains(page, reverse("item-add-to-comparison", args=[self.flat.pk]))
+
+    def test_archived_automatic_item_is_not_checked(self):
+        """Acceptance criterion 2."""
+        auto = self.automatic_item()
+        self.archive(auto)
+        page = self.client.get(reverse("item-detail", args=[auto.pk]))
+        self.assertNotContains(page, "Check now")
+        self.client.post(reverse("item-check", args=[auto.pk]))
+        self.assertEqual(self.internet.requested, [])
+        self.assertFalse(auto.check_attempts.exists())
+
+    def test_restore_brings_it_back_unchanged(self):
+        """Acceptance criterion 3."""
+        Item.objects.filter(pk=self.flat.pk).update(status=Item.Status.PAUSED)
+        self.archive()
+        response = self.client.post(reverse("item-restore", args=[self.flat.pk]))
+        self.assertRedirects(response, reverse("item-detail", args=[self.flat.pk]), fetch_redirect_response=False)
+        self.flat.refresh_from_db()
+        self.assertFalse(self.flat.is_archived)
+        self.assertEqual(self.flat.status, Item.Status.PAUSED)
+        self.assertEqual(list(self.group.items.all()), [self.flat])
+        self.assertContains(self.client.get(reverse("comparison-detail", args=[self.group.pk])), "Studio Militari")
+        self.assertContains(self.client.get(reverse("item-list")), "Studio Militari")
+
+    def test_editing_a_group_keeps_its_archived_members(self):
+        """Acceptance criterion 4."""
+        other = Item.objects.create(owner=self.user, category=self.rent, name="Other flat")
+        self.archive()
+        response = self.client.post(reverse("comparison-update", args=[self.group.pk]),
+                                    {"name": "Studios", "items": [other.pk]})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(set(self.group.items.all()), {self.flat, other})
+
+    def test_archived_filter_shows_only_archived_items(self):
+        """Acceptance criterion 5."""
+        Item.objects.create(owner=self.user, category=self.rent, name="Active flat")
+        self.archive()
+        response = self.client.get(reverse("item-list"), {"status": "archived"})
+        self.assertContains(response, "Studio Militari")
+        self.assertNotContains(response, "Active flat")
+        self.assertContains(response, '<option value="archived" selected>Archived</option>')
+
+    def test_archive_and_restore_only_accept_post(self):
+        for name in ("item-archive", "item-restore"):
+            self.assertEqual(self.client.get(reverse(name, args=[self.flat.pk])).status_code, 405)
+        self.flat.refresh_from_db()
+        self.assertFalse(self.flat.is_archived)
+
+    def test_permanent_delete_after_confirmation(self):
+        """Acceptance criterion 6."""
+        CheckAttempt.objects.create(item=self.flat, attempted_at=timezone.now(), outcome=CheckAttempt.Outcome.OK)
+        self.archive()
+        url = reverse("item-delete", args=[self.flat.pk])
+        confirm = self.client.get(url)
+        self.assertContains(confirm, "Its 2 prices and its check history will be removed, and it will leave 1 comparison.")
+        self.assertTrue(Item.objects.filter(pk=self.flat.pk).exists())  # GET deletes nothing
+        response = self.client.post(url)
+        self.assertRedirects(response, reverse("item-list"), fetch_redirect_response=False)
+        self.assertFalse(Item.objects.filter(pk=self.flat.pk).exists())
+        self.assertFalse(PricePoint.objects.filter(item_id=self.flat.pk).exists())
+        self.assertFalse(CheckAttempt.objects.filter(item_id=self.flat.pk).exists())
+        self.assertTrue(ComparisonGroup.objects.filter(pk=self.group.pk).exists())
+        self.assertFalse(self.group.items.exists())
+
+    def test_items_that_are_not_archived_cannot_be_deleted(self):
+        """Acceptance criterion 6."""
+        for method in (self.client.get, self.client.post):
+            response = method(reverse("item-delete", args=[self.flat.pk]))
+            self.assertRedirects(response, reverse("item-detail", args=[self.flat.pk]), fetch_redirect_response=False)
+        self.assertTrue(Item.objects.filter(pk=self.flat.pk).exists())
+
+    def test_delete_one_price(self):
+        """Acceptance criterion 7."""
+        url = reverse("price-delete", args=[self.flat.pk, self.new_price.pk])
+        self.assertContains(self.client.get(url), "2500.00 RON")
+        self.assertTrue(PricePoint.objects.filter(pk=self.new_price.pk).exists())  # GET deletes nothing
+        self.client.post(url)
+        self.assertEqual(list(self.flat.price_points.all()), [self.old_price])
+        page = self.client.get(reverse("item-detail", args=[self.flat.pk]))
+        self.assertIsNone(page.context["summary"].change)  # the drop to 2500 is gone
+        self.assertContains(page, "2600.00 <small>RON</small>")
+
+    def test_delete_the_last_price(self):
+        """Acceptance criterion 7."""
+        for point in (self.new_price, self.old_price):
+            self.client.post(reverse("price-delete", args=[self.flat.pk, point.pk]))
+        page = self.client.get(reverse("item-detail", args=[self.flat.pk]))
+        self.assertContains(page, "No price history yet")
+        self.assertContains(self.client.get(reverse("item-list")), "No price recorded")
+
+    def test_a_price_must_belong_to_the_item_in_the_address(self):
+        other_item = Item.objects.create(owner=self.user, category=self.rent, name="Other")
+        response = self.client.post(reverse("price-delete", args=[other_item.pk, self.new_price.pk]))
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(PricePoint.objects.filter(pk=self.new_price.pk).exists())
+
+    def test_other_users_cannot_archive_restore_or_delete(self):
+        """Acceptance criterion 8."""
+        self.client.force_login(self.other)
+        pk = self.flat.pk
+        for name in ("item-archive", "item-restore", "item-delete"):
+            self.assertEqual(self.client.post(reverse(name, args=[pk])).status_code, 404)
+        self.assertEqual(self.client.get(reverse("item-delete", args=[pk])).status_code, 404)
+        self.assertEqual(self.client.post(reverse("price-delete", args=[pk, self.new_price.pk])).status_code, 404)
+        self.flat.refresh_from_db()
+        self.assertFalse(self.flat.is_archived)
+        self.assertEqual(self.flat.price_points.count(), 2)
+        # Not even an archived item of yours can be deleted by them.
+        Item.objects.filter(pk=pk).update(archived_at=timezone.now())
+        self.assertEqual(self.client.post(reverse("item-delete", args=[pk])).status_code, 404)
+        self.assertTrue(Item.objects.filter(pk=pk).exists())

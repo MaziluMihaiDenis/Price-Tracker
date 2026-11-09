@@ -150,8 +150,17 @@ class ComparisonGroupForm(BootstrapFormMixin, forms.ModelForm):
     def __init__(self, *args, owner, **kwargs):
         super().__init__(*args, **kwargs)
         self.owner = owner
-        self.fields["items"].queryset = Item.objects.filter(owner=owner).select_related("category")
+        self.fields["items"].queryset = Item.objects.filter(
+            owner=owner, archived_at__isnull=True).select_related("category")
         self.apply_bootstrap_classes()
+
+    def clean_items(self):
+        # Archived members aren't shown as checkboxes, so add them back: saving the group
+        # must never silently drop them (restoring an item brings it back to its groups).
+        items = list(self.cleaned_data["items"])
+        if self.instance.pk:
+            items += list(self.instance.items.filter(archived_at__isnull=False))
+        return items
 
     def clean_name(self):
         # The owner isn't a form field, so Django can't check "one name per person" itself:

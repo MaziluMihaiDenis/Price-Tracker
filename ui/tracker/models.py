@@ -65,12 +65,19 @@ class Item(models.Model):
     last_error = models.CharField(max_length=240, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+    # Empty for normal items. Archived items are hidden and not checked, but keep their status,
+    # prices and comparison groups, so restoring brings them back exactly as they were.
+    archived_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-updated_at", "name"]
 
     def __str__(self):
         return self.name
+
+    @property
+    def is_archived(self):
+        return self.archived_at is not None
 
     @property
     def latest_prices(self):

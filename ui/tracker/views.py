@@ -4,9 +4,9 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Prefetch, Q
+from django.db.models import Count, Prefetch, Q
 from django.shortcuts import get_object_or_404, redirect, render
-from django.utils import timezone
+from django.utils import dateformat, timezone
 from django.views.decorators.http import require_POST
 
 from tracker.adapters import adapter_for
@@ -37,14 +37,27 @@ def _in_viewer_currency(user, amount, currency):
     return f"{shown.amount} {shown.currency}" if shown.converted else ""
 
 
-def _items_for(user):
+ARCHIVED_FILTER = "archived"  # the item list's status filter value for archived items
+
+
+def _items_for(user, include_archived=False):
+    """The user's items. Archived ones are hidden unless asked for (the item page needs them)."""
+    items = Item.objects.filter(owner=user)
+    if not include_archived:
+        items = items.filter(archived_at__isnull=True)
     return (
-        Item.objects.filter(owner=user)
+        items
         .select_related("category")
         .prefetch_related(
             Prefetch("price_points", queryset=PricePoint.objects.order_by("-recorded_at", "-id")[:2], to_attr="_latest_prices")
         )
     )
+
+
+def _groups_for(user):
+    """The user's comparison groups, each with `item_count`: its items that aren't archived."""
+    return ComparisonGroup.objects.filter(owner=user).annotate(
+        item_count=Count("items", filter=Q(items__archived_at__isnull=True)))
 
 
 def _daily_check_summary(user):
@@ -79,7 +92,7 @@ def dashboard(request):
         (item for item in all_items if item.price_summary.change and item.price_summary.change.since >= changed_since),
         key=lambda item: item.price_summary.change.percent, reverse=True,
     )[:PRICE_CHANGES_SHOWN]
-    recent_prices = PricePoint.objects.filter(item__owner=request.user).select_related(
+    recent_prices = PricePoint.objects.filter(item__owner=request.user, item__archived_at__isnull=True).select_related(
         "item", "item__category"
     )[:6]
     context = {
@@ -90,7 +103,7 @@ def dashboard(request):
         "recent_prices": recent_prices,
         "price_changes": price_changes,
         "rate_book": book,  # shared with the templates, so rates are loaded only once
-        "groups": ComparisonGroup.objects.filter(owner=request.user).prefetch_related("items")[:3],
+        "groups": _groups_for(request.user)[:3],
         "daily_check": _daily_check_summary(request.user),
     }
     return render(request, "tracker/dashboard.html", context)
@@ -98,10 +111,12 @@ def dashboard(request):
 
 @login_required
 def item_list(request):
-    items = _items_for(request.user)
+    status = request.GET.get("status", "")
+    items = _items_for(request.user, include_archived=True)
+    # "Archived" shows only archived items; every other view of the list hides them.
+    items = items.filter(archived_at__isnull=status != ARCHIVED_FILTER)
     query = request.GET.get("q", "").strip()
     category_id = request.GET.get("category", "")
-    status = request.GET.get("status", "")
     if query:
         items = items.filter(Q(name__icontains=query) | Q(description__icontains=query))
     if category_id.isdigit():
@@ -116,7 +131,7 @@ def item_list(request):
         "query": query,
         "selected_category": category_id,
         "selected_status": status,
-        "statuses": Item.Status.choices,
+        "statuses": Item.Status.choices + [(ARCHIVED_FILTER, "Archived")],
     })
 
 
@@ -143,6 +158,14 @@ def item_create(request):
     })
 
 
+def _already_tracked_message(item):
+    """Add by link found an item with the same link: say whether it's tracked or archived."""
+    if item.is_archived:
+        archived_on = dateformat.format(timezone.localtime(item.archived_at), "j M Y")  # e.g. 7 Nov 2026
+        return f"You archived this item on {archived_on}. Open it to restore it."
+    return "You already track this link."
+
+
 @login_required
 def item_add_link(request):
     """Add an automatically tracked item: step 1 reads the link, step 2 confirms and saves."""
@@ -154,7 +177,7 @@ def item_add_link(request):
         if details_form.is_valid():
             existing = Item.objects.filter(owner=request.user, url=preview["url"]).first()
             if existing:
-                messages.info(request, "You already track this link.")
+                messages.info(request, _already_tracked_message(existing))
                 return redirect("item-detail", pk=existing.pk)
             item = details_form.save(commit=False)
             item.owner = request.user
@@ -175,7 +198,7 @@ def item_add_link(request):
         url = link_form.cleaned_data["url"]
         existing_item = Item.objects.filter(owner=request.user, url=url).first()
         if existing_item:
-            link_form.add_error("url", "You already track this link.")
+            link_form.add_error("url", _already_tracked_message(existing_item))
         else:
             result = read_page(url)
             if result.outcome != CheckAttempt.Outcome.OK:
@@ -235,8 +258,62 @@ def item_update(request, pk):
 
 
 @login_required
+@require_POST
+def item_archive(request, pk):
+    """Hide an item and stop checking it. Reversible, so there is no confirmation step."""
+    item = get_object_or_404(Item, pk=pk, owner=request.user)
+    if not item.is_archived:
+        item.archived_at = timezone.now()
+        item.save(update_fields=["archived_at"])  # keeps its place in "recently updated"
+    messages.success(request, "Archived. It's hidden from your lists and won't be checked.")
+    return redirect("item-detail", pk=item.pk)
+
+
+@login_required
+@require_POST
+def item_restore(request, pk):
+    item = get_object_or_404(Item, pk=pk, owner=request.user)
+    if item.is_archived:
+        item.archived_at = None
+        item.save(update_fields=["archived_at"])
+    messages.success(request, "Restored. It's back in your lists and comparisons.")
+    return redirect("item-detail", pk=item.pk)
+
+
+@login_required
+def item_delete(request, pk):
+    """Permanent delete, for archived items only. GET asks for confirmation; only POST deletes."""
+    item = get_object_or_404(Item, pk=pk, owner=request.user)
+    if not item.is_archived:
+        messages.info(request, "Archive the item first. Only archived items can be deleted permanently.")
+        return redirect("item-detail", pk=item.pk)
+    if request.method == "POST":
+        name = item.name
+        item.delete()  # its prices and check history go with it; it leaves every comparison
+        messages.success(request, f"Deleted “{name}”.")
+        return redirect("item-list")
+    return render(request, "tracker/item_confirm_delete.html", {
+        "item": item,
+        "price_count": item.price_points.count(),
+        "group_count": item.comparison_groups.count(),
+    })
+
+
+@login_required
+def price_delete(request, pk, price_pk):
+    """Remove one price from an item's history. GET asks for confirmation; only POST deletes."""
+    item = get_object_or_404(Item, pk=pk, owner=request.user)
+    point = get_object_or_404(PricePoint, pk=price_pk, item=item)
+    if request.method == "POST":
+        point.delete()
+        messages.success(request, "Price deleted from the history.")
+        return redirect("item-detail", pk=item.pk)
+    return render(request, "tracker/price_confirm_delete.html", {"item": item, "point": point})
+
+
+@login_required
 def item_detail(request, pk):
-    item = get_object_or_404(_items_for(request.user), pk=pk)
+    item = get_object_or_404(_items_for(request.user, include_archived=True), pk=pk)
     price_form = PricePointForm(request.POST or None, prefix="price")
     if request.method == "POST":
         if price_form.is_valid():
@@ -276,8 +353,7 @@ def item_detail(request, pk):
 
 @login_required
 def comparison_list(request):
-    groups = ComparisonGroup.objects.filter(owner=request.user).prefetch_related("items")
-    return render(request, "tracker/comparison_list.html", {"groups": groups})
+    return render(request, "tracker/comparison_list.html", {"groups": _groups_for(request.user)})
 
 
 @login_required
@@ -334,7 +410,7 @@ def comparison_detail(request, pk):
 @login_required
 @require_POST
 def item_add_to_comparison(request, pk):
-    item = get_object_or_404(Item, pk=pk, owner=request.user)
+    item = get_object_or_404(Item, pk=pk, owner=request.user, archived_at__isnull=True)
     form = AddToComparisonForm(request.POST, item=item)  # only your groups can be chosen
     if form.is_valid():
         group = form.cleaned_data["group"]

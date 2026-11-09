@@ -145,7 +145,8 @@ def seconds_until_next_check(item, now=None):
 
 
 def can_be_checked(item):
-    return (item.source == Item.Source.AUTOMATIC and bool(item.url)
+    """Automatic, with a link, not paused or removed, and not archived (daily check and Check now)."""
+    return (item.source == Item.Source.AUTOMATIC and bool(item.url) and not item.is_archived
             and item.status not in (Item.Status.PAUSED, Item.Status.REMOVED))
 
 

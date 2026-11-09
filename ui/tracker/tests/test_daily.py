@@ -123,6 +123,13 @@ class RunDailyChecksTests(DailyChecksTestCase):
         self.assertEqual((run.checked, run.skipped), (0, 0))
         self.assertEqual(self.internet.requested, [])
 
+    def test_archived_items_are_not_checked(self):
+        """Milestone 3a, acceptance criterion 2."""
+        self.item(self.ana, EMAG_URL, archived_at=timezone.now())
+        run = self.run_checks()
+        self.assertEqual((run.checked, run.skipped), (0, 0))
+        self.assertEqual(self.internet.requested, [])
+
     def test_no_items_still_records_a_run(self):
         run = self.run_checks()
         self.assertEqual(run.checked, 0)

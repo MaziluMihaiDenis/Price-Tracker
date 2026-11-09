@@ -36,3 +36,10 @@
 .item-groups li{padding:7px 0;border-top:1px solid #f0f3f1;font-size:11px;font-weight:700}
 .item-groups a{color:var(--green)}
 .add-to-comparison .form-select{min-width:0}
+/* Archive and delete */
+.archived-banner{font-size:12px}
+.price-delete-link{color:#b0b9b4;font-size:13px;padding:2px 4px;border-radius:6px}
+.price-delete-link:hover,.price-delete-link:focus{color:#b75d56;background:#fbeae8}
+.price-to-delete>div{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid #f0f3f1;font-size:12px}
+.price-to-delete dt{color:#929d97;font-weight:400}
+.price-to-delete dd{margin:0;font-weight:700}
