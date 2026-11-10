@@ -11,6 +11,7 @@ from datetime import timedelta
 from django.utils import timezone
 
 from tracker import rates
+from tracker.backups import backup_if_configured
 from tracker.checks import can_be_checked, check_item
 from tracker.models import CheckAttempt, CheckRun, Item
 
@@ -98,4 +99,5 @@ def run_daily_checks(force=False, pause_seconds=PAUSE_SECONDS, sleep=time.sleep)
     run.save()
     logger.info("Daily check finished: %d checked, %d OK, %d need attention, %d removed, %d skipped.",
                 run.checked, run.ok, run.attention, run.removed, run.skipped)
+    backup_if_configured("daily check", log=logger)  # after the prices, so today's are in it
     return run

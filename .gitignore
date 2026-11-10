@@ -12,3 +12,7 @@ staticfiles/
 
 # Scraping spike: saved page copies may contain sellers' personal data
 spikes/scraping/pages/
+
+# Household mode (milestone 9): secret key and backup folder; safety copies made by restore_db
+ui/household.env
+ui/db.before-restore-*.sqlite3

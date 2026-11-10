@@ -315,15 +315,15 @@ The order is "riskiest first, then foundations": a spike first, so we find out e
 |---|---|---|---|
 | 1 | Scraping spike | ✅ Done | eMAG + Storia chosen. [Report](spikes/scraping-results.md), [plan](features/milestone-1-scraping-spike.md) |
 | 2 | Project setup | ✅ Done | Django app in `ui/`, logins, favourite-currency setting (commit `e2097aa`) |
-| 3 | Core data and manual entry | ✅ Done (M3a, M3b), M3c built, not committed yet | M3a archive and delete (commit `dee9249`, [plan](features/milestone-3a-archive-delete.md)); M3b custom fields and Location map (commit `ac47d72`, [plan](features/milestone-3b-custom-fields.md)); **M3c fill details and location from Storia/eMAG** ([plan](features/milestone-3c-autofill.md)) |
+| 3 | Core data and manual entry | ✅ Done | M3a archive and delete (commit `dee9249`, [plan](features/milestone-3a-archive-delete.md)); M3b custom fields and Location map (commit `ac47d72`, [plan](features/milestone-3b-custom-fields.md)); M3c fill details from Storia/eMAG (commit `4f2b3cd`, [plan](features/milestone-3c-autofill.md)) |
 | 4 | Currencies | ✅ Done | BNR rates imported and updated daily; every price, chart and message shown in each person's currency (commit `7301ce8`). [Plan](features/milestone-4-currencies.md) |
 | 5 | History and indicators | ✅ Done | One-currency chart, "↓ 7.7%" arrows, "Lowest ever" badge, lowest/highest on the item page, dashboard "Price changes" panel. (commit `44f3d06`). [Plan](features/milestone-5-indicators.md) |
 | 6 | Automatic tracking | ✅ Done | eMAG + Storia adapters, "Add by link" with preview, "Check now", statuses (commit `a6d08e2`) |
 | 7 | Scheduling | ✅ Built, ⏳ task not registered yet | `check_prices`, `CheckRun`, dashboard line (commit `c408d8e`). Run `scripts\register_daily_check.ps1` once to start the 17:00 daily task. [Plan](features/milestone-7-daily-checks.md) |
 | 8 | Comparison groups | ✅ Done | One chart per group in your currency, mixed-period warning with a "Per month" column, "Cheapest" / "+X% vs cheapest", arrows, edit and delete, "Add to comparison" on the item page. (commit `20fe865`). [Plan](features/milestone-8-comparisons.md) |
-| 9 | Household rollout | ⏭️ **Next** (⬜ not started) | Waitress, backup script, instructions for family members |
+| 9 | Household rollout | ✅ Built, not committed yet | Waitress at Windows start (S4U task), WhiteNoise, desktop icon, daily checked backups to a chosen folder with restore, family instructions. [Plan](features/milestone-9-household-rollout.md) |
 
-**Order from here:** M9 (household rollout). M3–M8 are done.
+**Order from here:** all nine milestones are built. Next: real household use, then decide about going public (PostgreSQL, hosting, https).
 
 | # | Milestone | Depends on | Main tasks | Acceptance criteria (how we know it's done) |
 |---|---|---|---|---|
@@ -375,15 +375,15 @@ The order is "riskiest first, then foundations": a spike first, so we find out e
 ### Open questions
 
 1. ~~Which 2 sites go into the MVP?~~ **Decided 2026-11-05: eMAG + Storia**, both read via structured data (see [docs/spikes/scraping-results.md](spikes/scraping-results.md)). Altex and imobiliare.ro block automated access; OLX's structured data converts prices to RON. eMAG's terms forbid automated extraction: accepted for personal use, to be re-evaluated before going public.
-2. Should the code be backed up on GitHub, in a private repository?
-3. Is the initial category list right?
+2. ~~Should the code be backed up on GitHub, in a private repository?~~ **Decided 2026-11-09: not now**; the database is backed up daily (M9).
+3. ~~Is the initial category list right?~~ **Settled by M3b:** categories and their fields are editable in the app (Categories page, staff only).
 
 ## 11. Recommended next steps
 
 *Updated 2026-11-06.*
 
 1. Register the daily task once: `powershell -ExecutionPolicy Bypass -File scripts\register_daily_check.ps1`.
-2. Plan and build **milestone 9 (household rollout: Waitress on the home Wi-Fi, backups, instructions)** with `/plan-feature`, then `/implement-feature`.
+2. Do the one-time household setup in the README (firewall, startup task, desktop icon, backup folder, family accounts), then test from a phone.
 3. Answer open questions 2 and 3 above.
 4. Then follow the order in "Roadmap status" (section 9).
 

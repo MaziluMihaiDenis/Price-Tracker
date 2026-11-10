@@ -1,7 +1,10 @@
 """Django settings for the local Price Tracker application."""
 
 import os
+import sys
 from pathlib import Path
+
+from app import household
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -35,6 +38,28 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+# Household mode (milestone 9): turned on only by scripts/serve.py, which runs the app with
+# Waitress for the family's phones. Development (runserver) and the tests are unaffected.
+HOUSEHOLD_MODE = os.environ.get("PRICE_TRACKER_HOUSEHOLD") == "1"
+if HOUSEHOLD_MODE:
+    _household = household.ensure_env(household.ENV_FILE)
+    SECRET_KEY = _household["DJANGO_SECRET_KEY"]  # random, kept in the git-ignored household.env
+    DEBUG = False  # visitors on the Wi-Fi only ever see plain error pages
+    ALLOWED_HOSTS = household.local_hosts()
+    # WhiteNoise serves styles and scripts, with version-stamped names so browsers
+    # always fetch the new files after an update (no Ctrl+F5 needed).
+    MIDDLEWARE.insert(1, "whitenoise.middleware.WhiteNoiseMiddleware")
+    STORAGES = {
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {"BACKEND": "app.storage.HouseholdStaticStorage"},  # WhiteNoise, see app/storage.py
+    }
+
+# Daily database backups go here (set BACKUP_DIR in household.env). Never during the
+# tests: they would copy the test database into your real backup folder.
+RUNNING_TESTS = len(sys.argv) > 1 and sys.argv[1] == "test"
+BACKUP_DIR = "" if RUNNING_TESTS else household.read_env(household.ENV_FILE).get("BACKUP_DIR", "")
+BACKUP_KEEP = 14
 
 ROOT_URLCONF = "app.urls"
 
