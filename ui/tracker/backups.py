@@ -29,13 +29,22 @@ def _live_database():
     return connection.connection
 
 
+def _read_only(path):
+    """A read-only SQLite connection to `path`, safe for any folder name.
+
+    The address must be encoded: in "file:...?mode=ro" a '#' would cut the path short
+    (and drop "read-only"), so as_uri() turns it into %23, spaces into %20, and so on.
+    """
+    return sqlite3.connect(f"{Path(path).resolve().as_uri()}?mode=ro", uri=True)
+
+
 def check_file(path):
     """Raise BackupError unless `path` is a healthy Price Tracker database."""
     path = Path(path)
     if not path.is_file():
         raise BackupError(f"{path} doesn't exist.")
     try:
-        with closing(sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)) as database:
+        with closing(_read_only(path)) as database:
             result = database.execute("PRAGMA integrity_check").fetchone()[0]
             tables = {row[0] for row in database.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     except sqlite3.DatabaseError as error:
@@ -90,7 +99,7 @@ def restore(backup_file, now=None, safety_folder=None):
     try:
         with closing(sqlite3.connect(safety)) as copy:
             _live_database().backup(copy)
-        with closing(sqlite3.connect(f"file:{backup_file.as_posix()}?mode=ro", uri=True)) as source:
+        with closing(_read_only(backup_file)) as source:
             source.backup(_live_database())
     except (OSError, sqlite3.Error) as error:
         raise BackupError(f"Couldn't restore {backup_file.name}: {error}. "

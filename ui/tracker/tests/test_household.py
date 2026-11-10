@@ -268,3 +268,24 @@ class ServeScriptTests(SimpleTestCase):
             port = listener.getsockname()[1]
             self.assertTrue(serve.port_in_use(port))
         self.assertFalse(serve.port_in_use(port))
+
+
+@override_settings(BACKUP_KEEP=14)
+class BackupFolderNameTests(TransactionTestCase):
+    """Review of M9, medium: folder names with #, %, spaces or Romanian letters."""
+
+    serialized_rollback = True
+
+    def test_any_folder_name_works(self):
+        get_user_model().objects.create_user("ana", password="test-pass-123")
+        with tempfile.TemporaryDirectory() as base:
+            for name in ("Backups #1", "50% done", "Copii de siguranță", "Price Tracker backups"):
+                folder = Path(base) / name
+                folder.mkdir()
+                path = backups.make_backup(folder)
+                backups.check_file(path)
+                safety = backups.restore(path, safety_folder=folder)
+                backups.check_file(safety)
+            # Nothing may be created outside the backup folders (the old bug made a stray "Backups" file).
+            self.assertEqual(sorted(p.name for p in Path(base).iterdir()),
+                             sorted(["Backups #1", "50% done", "Copii de siguranță", "Price Tracker backups"]))

@@ -40,13 +40,13 @@ Open <http://127.0.0.1:8000/> and sign in with the account created above. The Dj
 
 Items added by link (eMAG and Storia) are re-checked automatically every day at 17:00 by Windows Task Scheduler, or as soon as the PC is on if 17:00 was missed. Each household member's dashboard shows the result of the latest run for their own items.
 
-Register the task once, from the project folder:
+Register the task once, from an **administrator** terminal in the project folder (right-click Start > *Terminal (Admin)*):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\register_daily_check.ps1
 ```
 
-The task runs only while you are logged in to Windows, so no password is stored. Output is appended to `logs\daily_check.log`.
+The task runs whether anyone is signed in to Windows or not (like the household server), and Windows doesn't store your password. Output is appended to `logs\daily_check.log`. If you registered it before 10 Nov 2026, run the command again as administrator: the old version only ran while you were signed in.
 
 Run a check by hand (`--force` also re-checks items checked in the last 20 hours):
 
@@ -117,7 +117,11 @@ Steps 2 and 3 change Windows settings, so they need an **administrator** termina
    powershell -ExecutionPolicy Bypass -File scripts\register_server.ps1
    ```
 
-   Run it from your own account's admin terminal: the task runs as the account that registers it.
+   Run it from your own account's admin terminal: the task runs as the account that registers it. In the same terminal, (re)register the 17:00 price check and backup so they also run when nobody signs in:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts\register_daily_check.ps1
+   ```
 
 4. **Desktop icon** (normal terminal, no admin needed):
 
