@@ -1169,3 +1169,31 @@ class AutofillViewTests(ViewTestCase):
         self.client.post(reverse("item-fill-confirm", args=[second.pk]), {"fields": ["rooms"]})
         second.refresh_from_db()
         self.assertEqual(second.custom_values, {})
+
+
+class AccountPageTests(ViewTestCase):
+    """Whole-application review: no "reset by email" (the app can't send email)."""
+
+    def test_email_reset_pages_are_gone(self):
+        self.client.logout()
+        for url in ("/accounts/password_reset/", "/accounts/password_reset/done/",
+                    "/accounts/reset/MQ/set-password/", "/accounts/reset/done/"):
+            self.assertEqual(self.client.get(url).status_code, 404, url)
+        self.assertEqual(self.client.post("/accounts/password_reset/", {"email": "a@example.invalid"}).status_code, 404)
+
+    def test_login_page_says_to_ask_the_admin(self):
+        self.client.logout()
+        page = self.client.get(reverse("login"))
+        self.assertContains(page, "Forgot your password? Ask the person who set up Price Tracker to reset it.")
+
+    def test_sign_in_change_password_and_sign_out_still_work(self):
+        self.client.logout()
+        response = self.client.post(reverse("login"), {"username": "ana", "password": "test-pass-123"})
+        self.assertRedirects(response, reverse("dashboard"))
+        self.assertEqual(self.client.get(reverse("password_change")).status_code, 200)
+        response = self.client.post(reverse("password_change"), {
+            "old_password": "test-pass-123", "new_password1": "a-longer-new-pass-456", "new_password2": "a-longer-new-pass-456"})
+        self.assertRedirects(response, reverse("password_change_done"))
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("a-longer-new-pass-456"))
+        self.assertRedirects(self.client.post(reverse("logout")), reverse("login"))

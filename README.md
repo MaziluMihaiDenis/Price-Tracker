@@ -139,6 +139,8 @@ Steps 2 and 3 change Windows settings, so they need an **administrator** termina
 
 6. **Accounts for the family:** open http://localhost:8000/admin/ > *Users* > *Add user*, choose a username and password, save. Leave **Staff status** unticked (staff can change the shared categories and use the admin). Each person sets their favourite currency under *Preferences*.
 
+   **Forgotten password:** the app can't send email, so there's no "reset by email". Reset it yourself: http://localhost:8000/admin/ > *Users* > the person > *change password form* (under the password), set a temporary password and tell them. Anyone signed in can change their own password at http://PC-NAME:8000/accounts/password_change/.
+
 7. **Find the PC's name** for the family: `hostname` in a terminal. The server log (`logs\server.log`) also lists every name and address it accepts.
 
 ### Backups and restore
