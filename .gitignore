@@ -16,3 +16,6 @@ spikes/scraping/pages/
 # Household mode (milestone 9): secret key and backup folder; safety copies made by restore_db
 ui/household.env
 ui/db.before-restore-*.sqlite3
+
+# Built by scripts/build_launcher.ps1 (rebuild instead of committing it)
+/Price Tracker.exe

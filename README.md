@@ -123,11 +123,14 @@ Steps 2 and 3 change Windows settings, so they need an **administrator** termina
    powershell -ExecutionPolicy Bypass -File scripts\register_daily_check.ps1
    ```
 
-4. **Desktop icon** (normal terminal, no admin needed):
+4. **`Price Tracker.exe` and a desktop icon** (normal terminal, no admin needed). First build the launcher, then put a shortcut to it on the desktop:
 
    ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts\build_launcher.ps1
    powershell -ExecutionPolicy Bypass -File scripts\create_shortcut.ps1
    ```
+
+   Double-clicking `Price Tracker.exe` (or the green "P" icon) starts the app if it isn't running, waits until it answers (up to 20 s), and opens it in your default browser; if it's already running, it only opens the browser. The `.exe` is a 21 KB launcher built with the C# compiler that comes with Windows (nothing to install). It must **stay in the project folder** (it uses the project's `.venv`): copy the shortcut, not the `.exe`. It's a built file, so it isn't in Git: rebuild it after a fresh checkout or after changing `scripts\launcher\`.
 
 5. **Backup folder.** The first household start creates `ui\household.env` (private and git-ignored: it holds the secret key). Open it in Notepad and set the folder, ideally outside this PC's disk, e.g. in OneDrive:
 
