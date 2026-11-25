@@ -7,8 +7,9 @@ from urllib.parse import urlsplit, urlunsplit
 
 from tracker.adapters.emag import EmagAdapter
 from tracker.adapters.storia import StoriaAdapter
+from tracker.adapters.olx import OlxAdapter
 
-ADAPTERS = (EmagAdapter(), StoriaAdapter())
+ADAPTERS = (EmagAdapter(), StoriaAdapter(), OlxAdapter())
 
 
 def adapter_for(url):

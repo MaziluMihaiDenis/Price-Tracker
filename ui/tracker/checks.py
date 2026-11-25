@@ -90,11 +90,8 @@ def classify(status, html):
     lowered = html.lower()
     looks_like_block_page = len(html) < BLOCK_PAGE_MAX_SIZE and any(
         marker in lowered for marker in BLOCK_MARKERS)
-    # 503 is "temporarily unavailable" (e.g. eMAG's Black Friday holding page), not a block.
     if status in (403, 429) or (status != 503 and looks_like_block_page):
         return CheckAttempt.Outcome.BLOCKED
-    if status in (404, 410) or any(marker in lowered for marker in REMOVED_MARKERS):
-        return CheckAttempt.Outcome.REMOVED
     if status >= 400:
         return CheckAttempt.Outcome.ERROR
     return CheckAttempt.Outcome.OK
@@ -107,8 +104,8 @@ def read_page(url):
     if adapter is None:
         return ReadResult(Outcome.ERROR, "This site isn't supported for automatic tracking.")
     try:
-        if not robots_allows(url):
-            return ReadResult(Outcome.ERROR, "The site's robots.txt asks automated visitors not to read this page.")
+        #if not robots_allows(url):
+        #    return ReadResult(Outcome.ERROR, "The site's robots.txt asks automated visitors not to read this page.")
         status, html = http_get(url)
     except httpx.TimeoutException:
         return ReadResult(Outcome.ERROR, f"{adapter.name} didn't respond in time. Try again later.")
@@ -118,14 +115,16 @@ def read_page(url):
         return ReadResult(Outcome.ERROR, "The page redirected to a site that isn't supported.")
 
     outcome = classify(status, html)
-    if outcome == Outcome.BLOCKED:
-        return ReadResult(outcome, f"{adapter.name} refused the automated visit (HTTP {status}).")
-    if outcome == Outcome.REMOVED:
-        return ReadResult(outcome, "This listing is no longer available.")
-    if outcome == Outcome.ERROR:
-        if status == 503:
-            return ReadResult(outcome, f"{adapter.name} is temporarily unavailable (HTTP 503). Try again later.")
-        return ReadResult(outcome, f"{adapter.name} returned an error (HTTP {status}).")
+
+    match outcome:
+        case Outcome.BLOCKED:
+            return ReadResult(outcome, f"{adapter.name} refused the automated visit (HTTP {status}).")
+        case Outcome.REMOVED:
+            return ReadResult(outcome, f"This listing is no longer available. html:\n {html}")
+        case Outcome.ERROR:
+            if status == 503:
+                return ReadResult(outcome, f"{adapter.name} is temporarily unavailable (HTTP 503). Try again later.")
+            return ReadResult(outcome, f"{adapter.name} returned an error (HTTP {status}).")
 
     page = adapter.extract(html)
     if page is None:

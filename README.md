@@ -123,7 +123,7 @@ Steps 2 and 3 change Windows settings, so they need an **administrator** termina
    powershell -ExecutionPolicy Bypass -File scripts\register_daily_check.ps1
    ```
 
-4. **`Price Tracker.exe` and a desktop icon** (normal terminal, no admin needed). First build the launcher, then put a shortcut to it on the desktop:
+4. **`Price Tracker.exe` and desktop icons** (normal terminal, no admin needed). First build the launcher, then put shortcuts on the desktop (**Price Tracker** to open the app, **Restart Price Tracker** to restart it after code changes):
 
    ```powershell
    powershell -ExecutionPolicy Bypass -File scripts\build_launcher.ps1
@@ -157,7 +157,19 @@ Steps 2 and 3 change Windows settings, so they need an **administrator** termina
 
 ### Updating the app
 
-After pulling new code: back up, then `.\.venv\Scripts\python.exe -m pip install -r requirements.txt` and `.\.venv\Scripts\python.exe ui\manage.py migrate`, then restart the *Price Tracker server* task. The app never changes the database structure by itself; `logs\server.log` warns if a `migrate` is due. Styles and scripts update automatically (no Ctrl+F5).
+The running app loads the code once, when it starts, so code changes need a restart. After changing code (or pulling new code):
+
+1. If `requirements.txt` changed: `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`
+2. If there are database updates (new files in `ui\tracker\migrations\`, or `logs\server.log` warns that a `migrate` is due): back up, then `.\.venv\Scripts\python.exe ui\manage.py migrate`. The app never changes the database structure by itself.
+3. **Restart:** double-click the **Restart Price Tracker** desktop icon (made by `scripts\create_shortcut.ps1`), or run:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts\restart_app.ps1
+   ```
+
+   It first checks that the code loads; if it doesn't, it shows the error and **leaves the running app alone**. Otherwise it stops Price Tracker's server (only that one), starts it again (through the *Price Tracker server* task when it's registered), waits until it answers and opens the browser. Add `-NoBrowser` to skip opening the browser. If port 8000 is held by another program, such as the development server, it says so and stops.
+
+Styles and scripts update automatically (no Ctrl+F5).
 
 ### If a phone can't connect
 

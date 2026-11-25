@@ -56,7 +56,7 @@ def load_urls():
 
 
 def robots_for(site_root, fetch, cache):
-    """Fetch and parse robots.txt once per site. Returns a parser, or None if unreachable.
+    """Fetch a  nd parse robots.txt once per site. Returns a parser, or None if unreachable.
 
     Uses the same fetch function as the pages, so the browser round reads robots.txt
     through the browser too. Following Google's convention: a missing robots.txt (404)

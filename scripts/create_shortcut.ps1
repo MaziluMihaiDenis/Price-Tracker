@@ -32,3 +32,15 @@ $shortcut.WorkingDirectory = $root
 $shortcut.Description = 'Open Price Tracker'
 $shortcut.Save()
 Write-Host "Created $shortcutPath -> $($shortcut.TargetPath)"
+
+# A second icon to restart the app after code changes (scripts\restart_app.ps1). A .ps1 file
+# would open in Notepad when double-clicked, so the icon runs PowerShell with it instead.
+$restartPath = Join-Path $desktop 'Restart Price Tracker.lnk'
+$restart = $shell.CreateShortcut($restartPath)
+$restart.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$restart.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $root 'scripts\restart_app.ps1')`" -Wait"
+$restart.WorkingDirectory = $root
+$restart.Description = 'Restart Price Tracker with the latest code'
+$restart.IconLocation = "$env:SystemRoot\System32\shell32.dll,238"  # a circular "refresh" arrow
+$restart.Save()
+Write-Host "Created $restartPath"
